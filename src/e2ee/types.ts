@@ -13,6 +13,7 @@ export interface InitMessage extends BaseMessage {
   data: {
     keyProviderOptions: KeyProviderOptions;
     loglevel: LogLevel;
+    logSessionId: string;
   };
 }
 

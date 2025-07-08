@@ -176,3 +176,9 @@ export function writeRbsp(data_in: Uint8Array): Uint8Array {
   }
   return new Uint8Array(dataOut);
 }
+
+export const generateLogSessionId = () => {
+  const now = Date.now().toString(36);
+  const random = Math.random().toString(36).slice(2, 10);
+  return `${now}-${random}`;
+};
