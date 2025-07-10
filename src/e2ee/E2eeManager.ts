@@ -63,6 +63,7 @@ export class E2EEManager
     this.worker = options.worker;
     this.encryptionEnabled = false;
     this.localParticipantLogSessionId = generateLogSessionId();
+    log.info(`${E2EE_LOG_PREFIX} Your livekit logSessionId: ${this.localParticipantLogSessionId}`);
   }
 
   private get logContext() {
@@ -446,6 +447,13 @@ export class E2EEManager
   }
 
   private setupE2EEReceiver(track: RemoteTrack, remoteId: string, trackInfo?: TrackInfo) {
+    log.info(`${E2EE_LOG_PREFIX} started setting up e2ee receiver for ${track.source}`, {
+      ...this.logContext,
+      track,
+      trackInfo,
+      participantIdentity: remoteId,
+    });
+
     if (!track.receiver) {
       log.error(`${E2EE_LOG_PREFIX} failed to setup e2ee receiver, track.receiver ir missing`, {
         ...this.logContext,
@@ -472,6 +480,11 @@ export class E2EEManager
   }
 
   private setupE2EESender(track: Track, sender: RTCRtpSender) {
+    log.info(`${E2EE_LOG_PREFIX} started setting up e2ee sender for ${track.source}`, {
+      ...this.logContext,
+      track,
+    });
+
     if (!isLocalTrack(track) || !sender) {
       log.error(`${E2EE_LOG_PREFIX} failed to setup e2ee sender`, {
         ...this.logContext,
