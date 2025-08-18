@@ -110,6 +110,11 @@ export interface InitAck extends BaseMessage {
   };
 }
 
+export interface LoggingMessage extends BaseMessage {
+  kind: 'logging';
+  data: { message: string; properties: Record<string, any> };
+}
+
 export type E2EEWorkerMessage =
   | InitMessage
   | SetKeyMessage
@@ -122,7 +127,8 @@ export type E2EEWorkerMessage =
   | RatchetRequestMessage
   | RatchetMessage
   | SifTrailerMessage
-  | InitAck;
+  | InitAck
+  | LoggingMessage;
 
 export type KeySet = { material: CryptoKey; encryptionKey: CryptoKey };
 

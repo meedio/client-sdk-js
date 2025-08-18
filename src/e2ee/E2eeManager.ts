@@ -240,6 +240,9 @@ export class E2EEManager
           data.keyIndex,
         );
         break;
+      case 'logging':
+        log.info(data.message, data.properties);
+        break;
       default:
         break;
     }
