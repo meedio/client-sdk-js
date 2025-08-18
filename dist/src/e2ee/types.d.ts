@@ -96,7 +96,14 @@ export interface InitAck extends BaseMessage {
         enabled: boolean;
     };
 }
-export type E2EEWorkerMessage = InitMessage | SetKeyMessage | EncodeMessage | ErrorMessage | EnableMessage | RemoveTransformMessage | RTPVideoMapMessage | UpdateCodecMessage | RatchetRequestMessage | RatchetMessage | SifTrailerMessage | InitAck;
+export interface LoggingMessage extends BaseMessage {
+    kind: 'logging';
+    data: {
+        message: string;
+        properties: Record<string, any>;
+    };
+}
+export type E2EEWorkerMessage = InitMessage | SetKeyMessage | EncodeMessage | ErrorMessage | EnableMessage | RemoveTransformMessage | RTPVideoMapMessage | UpdateCodecMessage | RatchetRequestMessage | RatchetMessage | SifTrailerMessage | InitAck | LoggingMessage;
 export type KeySet = {
     material: CryptoKey;
     encryptionKey: CryptoKey;

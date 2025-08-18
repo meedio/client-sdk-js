@@ -12785,6 +12785,9 @@ class E2EEManager extends eventsExports.EventEmitter {
           }));
           this.keyProvider.emit(KeyProviderEvent.KeyRatcheted, data.ratchetResult, data.participantIdentity, data.keyIndex);
           break;
+        case 'logging':
+          livekitLogger.info(data.message, data.properties);
+          break;
       }
     };
     this.onWorkerError = ev => {

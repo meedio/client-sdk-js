@@ -30,359 +30,6 @@ typeof SuppressedError === "function" ? SuppressedError : function (error, suppr
     return e.name = "SuppressedError", e.error = error, e.suppressed = suppressed, e;
 };
 
-var loglevel$1 = {exports: {}};
-
-/*
-* loglevel - https://github.com/pimterry/loglevel
-*
-* Copyright (c) 2013 Tim Perry
-* Licensed under the MIT license.
-*/
-var loglevel = loglevel$1.exports;
-var hasRequiredLoglevel;
-function requireLoglevel() {
-  if (hasRequiredLoglevel) return loglevel$1.exports;
-  hasRequiredLoglevel = 1;
-  (function (module) {
-    (function (root, definition) {
-
-      if (module.exports) {
-        module.exports = definition();
-      } else {
-        root.log = definition();
-      }
-    })(loglevel, function () {
-
-      // Slightly dubious tricks to cut down minimized file size
-      var noop = function () {};
-      var undefinedType = "undefined";
-      var isIE = typeof window !== undefinedType && typeof window.navigator !== undefinedType && /Trident\/|MSIE /.test(window.navigator.userAgent);
-      var logMethods = ["trace", "debug", "info", "warn", "error"];
-      var _loggersByName = {};
-      var defaultLogger = null;
-
-      // Cross-browser bind equivalent that works at least back to IE6
-      function bindMethod(obj, methodName) {
-        var method = obj[methodName];
-        if (typeof method.bind === 'function') {
-          return method.bind(obj);
-        } else {
-          try {
-            return Function.prototype.bind.call(method, obj);
-          } catch (e) {
-            // Missing bind shim or IE8 + Modernizr, fallback to wrapping
-            return function () {
-              return Function.prototype.apply.apply(method, [obj, arguments]);
-            };
-          }
-        }
-      }
-
-      // Trace() doesn't print the message in IE, so for that case we need to wrap it
-      function traceForIE() {
-        if (console.log) {
-          if (console.log.apply) {
-            console.log.apply(console, arguments);
-          } else {
-            // In old IE, native console methods themselves don't have apply().
-            Function.prototype.apply.apply(console.log, [console, arguments]);
-          }
-        }
-        if (console.trace) console.trace();
-      }
-
-      // Build the best logging method possible for this env
-      // Wherever possible we want to bind, not wrap, to preserve stack traces
-      function realMethod(methodName) {
-        if (methodName === 'debug') {
-          methodName = 'log';
-        }
-        if (typeof console === undefinedType) {
-          return false; // No method possible, for now - fixed later by enableLoggingWhenConsoleArrives
-        } else if (methodName === 'trace' && isIE) {
-          return traceForIE;
-        } else if (console[methodName] !== undefined) {
-          return bindMethod(console, methodName);
-        } else if (console.log !== undefined) {
-          return bindMethod(console, 'log');
-        } else {
-          return noop;
-        }
-      }
-
-      // These private functions always need `this` to be set properly
-
-      function replaceLoggingMethods() {
-        /*jshint validthis:true */
-        var level = this.getLevel();
-
-        // Replace the actual methods.
-        for (var i = 0; i < logMethods.length; i++) {
-          var methodName = logMethods[i];
-          this[methodName] = i < level ? noop : this.methodFactory(methodName, level, this.name);
-        }
-
-        // Define log.log as an alias for log.debug
-        this.log = this.debug;
-
-        // Return any important warnings.
-        if (typeof console === undefinedType && level < this.levels.SILENT) {
-          return "No console available for logging";
-        }
-      }
-
-      // In old IE versions, the console isn't present until you first open it.
-      // We build realMethod() replacements here that regenerate logging methods
-      function enableLoggingWhenConsoleArrives(methodName) {
-        return function () {
-          if (typeof console !== undefinedType) {
-            replaceLoggingMethods.call(this);
-            this[methodName].apply(this, arguments);
-          }
-        };
-      }
-
-      // By default, we use closely bound real methods wherever possible, and
-      // otherwise we wait for a console to appear, and then try again.
-      function defaultMethodFactory(methodName, _level, _loggerName) {
-        /*jshint validthis:true */
-        return realMethod(methodName) || enableLoggingWhenConsoleArrives.apply(this, arguments);
-      }
-      function Logger(name, factory) {
-        // Private instance variables.
-        var self = this;
-        /**
-         * The level inherited from a parent logger (or a global default). We
-         * cache this here rather than delegating to the parent so that it stays
-         * in sync with the actual logging methods that we have installed (the
-         * parent could change levels but we might not have rebuilt the loggers
-         * in this child yet).
-         * @type {number}
-         */
-        var inheritedLevel;
-        /**
-         * The default level for this logger, if any. If set, this overrides
-         * `inheritedLevel`.
-         * @type {number|null}
-         */
-        var defaultLevel;
-        /**
-         * A user-specific level for this logger. If set, this overrides
-         * `defaultLevel`.
-         * @type {number|null}
-         */
-        var userLevel;
-        var storageKey = "loglevel";
-        if (typeof name === "string") {
-          storageKey += ":" + name;
-        } else if (typeof name === "symbol") {
-          storageKey = undefined;
-        }
-        function persistLevelIfPossible(levelNum) {
-          var levelName = (logMethods[levelNum] || 'silent').toUpperCase();
-          if (typeof window === undefinedType || !storageKey) return;
-
-          // Use localStorage if available
-          try {
-            window.localStorage[storageKey] = levelName;
-            return;
-          } catch (ignore) {}
-
-          // Use session cookie as fallback
-          try {
-            window.document.cookie = encodeURIComponent(storageKey) + "=" + levelName + ";";
-          } catch (ignore) {}
-        }
-        function getPersistedLevel() {
-          var storedLevel;
-          if (typeof window === undefinedType || !storageKey) return;
-          try {
-            storedLevel = window.localStorage[storageKey];
-          } catch (ignore) {}
-
-          // Fallback to cookies if local storage gives us nothing
-          if (typeof storedLevel === undefinedType) {
-            try {
-              var cookie = window.document.cookie;
-              var cookieName = encodeURIComponent(storageKey);
-              var location = cookie.indexOf(cookieName + "=");
-              if (location !== -1) {
-                storedLevel = /^([^;]+)/.exec(cookie.slice(location + cookieName.length + 1))[1];
-              }
-            } catch (ignore) {}
-          }
-
-          // If the stored level is not valid, treat it as if nothing was stored.
-          if (self.levels[storedLevel] === undefined) {
-            storedLevel = undefined;
-          }
-          return storedLevel;
-        }
-        function clearPersistedLevel() {
-          if (typeof window === undefinedType || !storageKey) return;
-
-          // Use localStorage if available
-          try {
-            window.localStorage.removeItem(storageKey);
-          } catch (ignore) {}
-
-          // Use session cookie as fallback
-          try {
-            window.document.cookie = encodeURIComponent(storageKey) + "=; expires=Thu, 01 Jan 1970 00:00:00 UTC";
-          } catch (ignore) {}
-        }
-        function normalizeLevel(input) {
-          var level = input;
-          if (typeof level === "string" && self.levels[level.toUpperCase()] !== undefined) {
-            level = self.levels[level.toUpperCase()];
-          }
-          if (typeof level === "number" && level >= 0 && level <= self.levels.SILENT) {
-            return level;
-          } else {
-            throw new TypeError("log.setLevel() called with invalid level: " + input);
-          }
-        }
-
-        /*
-         *
-         * Public logger API - see https://github.com/pimterry/loglevel for details
-         *
-         */
-
-        self.name = name;
-        self.levels = {
-          "TRACE": 0,
-          "DEBUG": 1,
-          "INFO": 2,
-          "WARN": 3,
-          "ERROR": 4,
-          "SILENT": 5
-        };
-        self.methodFactory = factory || defaultMethodFactory;
-        self.getLevel = function () {
-          if (userLevel != null) {
-            return userLevel;
-          } else if (defaultLevel != null) {
-            return defaultLevel;
-          } else {
-            return inheritedLevel;
-          }
-        };
-        self.setLevel = function (level, persist) {
-          userLevel = normalizeLevel(level);
-          if (persist !== false) {
-            // defaults to true
-            persistLevelIfPossible(userLevel);
-          }
-
-          // NOTE: in v2, this should call rebuild(), which updates children.
-          return replaceLoggingMethods.call(self);
-        };
-        self.setDefaultLevel = function (level) {
-          defaultLevel = normalizeLevel(level);
-          if (!getPersistedLevel()) {
-            self.setLevel(level, false);
-          }
-        };
-        self.resetLevel = function () {
-          userLevel = null;
-          clearPersistedLevel();
-          replaceLoggingMethods.call(self);
-        };
-        self.enableAll = function (persist) {
-          self.setLevel(self.levels.TRACE, persist);
-        };
-        self.disableAll = function (persist) {
-          self.setLevel(self.levels.SILENT, persist);
-        };
-        self.rebuild = function () {
-          if (defaultLogger !== self) {
-            inheritedLevel = normalizeLevel(defaultLogger.getLevel());
-          }
-          replaceLoggingMethods.call(self);
-          if (defaultLogger === self) {
-            for (var childName in _loggersByName) {
-              _loggersByName[childName].rebuild();
-            }
-          }
-        };
-
-        // Initialize all the internal levels.
-        inheritedLevel = normalizeLevel(defaultLogger ? defaultLogger.getLevel() : "WARN");
-        var initialLevel = getPersistedLevel();
-        if (initialLevel != null) {
-          userLevel = normalizeLevel(initialLevel);
-        }
-        replaceLoggingMethods.call(self);
-      }
-
-      /*
-       *
-       * Top-level API
-       *
-       */
-
-      defaultLogger = new Logger();
-      defaultLogger.getLogger = function getLogger(name) {
-        if (typeof name !== "symbol" && typeof name !== "string" || name === "") {
-          throw new TypeError("You must supply a name when creating a logger.");
-        }
-        var logger = _loggersByName[name];
-        if (!logger) {
-          logger = _loggersByName[name] = new Logger(name, defaultLogger.methodFactory);
-        }
-        return logger;
-      };
-
-      // Grab the current global log variable in case of overwrite
-      var _log = typeof window !== undefinedType ? window.log : undefined;
-      defaultLogger.noConflict = function () {
-        if (typeof window !== undefinedType && window.log === defaultLogger) {
-          window.log = _log;
-        }
-        return defaultLogger;
-      };
-      defaultLogger.getLoggers = function getLoggers() {
-        return _loggersByName;
-      };
-
-      // ES6 default export, for compatibility
-      defaultLogger['default'] = defaultLogger;
-      return defaultLogger;
-    });
-  })(loglevel$1);
-  return loglevel$1.exports;
-}
-
-var loglevelExports = requireLoglevel();
-
-var LogLevel;
-(function (LogLevel) {
-  LogLevel[LogLevel["trace"] = 0] = "trace";
-  LogLevel[LogLevel["debug"] = 1] = "debug";
-  LogLevel[LogLevel["info"] = 2] = "info";
-  LogLevel[LogLevel["warn"] = 3] = "warn";
-  LogLevel[LogLevel["error"] = 4] = "error";
-  LogLevel[LogLevel["silent"] = 5] = "silent";
-})(LogLevel || (LogLevel = {}));
-var LoggerNames;
-(function (LoggerNames) {
-  LoggerNames["Default"] = "livekit";
-  LoggerNames["Room"] = "livekit-room";
-  LoggerNames["Participant"] = "livekit-participant";
-  LoggerNames["Track"] = "livekit-track";
-  LoggerNames["Publication"] = "livekit-track-publication";
-  LoggerNames["Engine"] = "livekit-engine";
-  LoggerNames["Signal"] = "livekit-signal";
-  LoggerNames["PCManager"] = "livekit-pc-manager";
-  LoggerNames["PCTransport"] = "livekit-pc-transport";
-  LoggerNames["E2EE"] = "lk-e2ee";
-})(LoggerNames || (LoggerNames = {}));
-let livekitLogger = loglevelExports.getLogger('livekit');
-Object.values(LoggerNames).map(name => loglevelExports.getLogger(name));
-livekitLogger.setDefaultLevel(LogLevel.info);
-const workerLogger = loglevelExports.getLogger('lk-e2ee');
-
 var e = Object.defineProperty;
 var h = (i, s, t) => s in i ? e(i, s, {
   enumerable: true,
@@ -1141,10 +788,16 @@ class FrameCryptor extends BaseFrameCryptor {
     this.sifTrailer = (_a = opts.sifTrailer) !== null && _a !== void 0 ? _a : Uint8Array.from([]);
     this.sifGuard = new SifGuard();
     this.localParticipantLogSessionId = opts.logSessionId;
-    workerLogger.info("".concat(E2EE_CRYPTOR_LOG_PREFIX, " initialized cryptor"), Object.assign(Object.assign({}, this.logContext), {
-      keyProviderOptions: this.keyProviderOptions,
-      participantIdentity: this.participantIdentity
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " initialized cryptor"),
+        properties: Object.assign(Object.assign({}, this.logContext), {
+          keyProviderOptions: this.keyProviderOptions,
+          participantIdentity: this.participantIdentity
+        })
+      }
+    });
   }
   get logContext() {
     return {
@@ -1161,13 +814,25 @@ class FrameCryptor extends BaseFrameCryptor {
    * @param keys
    */
   setParticipant(id, keys) {
-    workerLogger.info("".concat(E2EE_CRYPTOR_LOG_PREFIX, " setting new participant on cryptor"), Object.assign(Object.assign({}, this.logContext), {
-      participantToSet: id
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " setting new participant on cryptor"),
+        properties: Object.assign(Object.assign({}, this.logContext), {
+          participantToSet: id
+        })
+      }
+    });
     if (this.participantIdentity) {
-      workerLogger.error("".concat(E2EE_CRYPTOR_LOG_PREFIX, " cryptor has already a participant set, participant should have been unset before"), Object.assign(Object.assign({}, this.logContext), {
-        participantToSet: id
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " cryptor has already a participant set, participant should have been unset before"),
+          properties: Object.assign(Object.assign({}, this.logContext), {
+            participantToSet: id
+          })
+        }
+      });
     }
     this.participantIdentity = id;
     this.keys = keys;
@@ -1175,7 +840,13 @@ class FrameCryptor extends BaseFrameCryptor {
   }
   unsetParticipant() {
     if (this.participantIdentity) {
-      workerLogger.info("".concat(E2EE_CRYPTOR_LOG_PREFIX, " unsetting participant"), this.logContext);
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " unsetting participant"),
+          properties: this.logContext
+        }
+      });
     }
     this.participantIdentity = undefined;
   }
@@ -1207,23 +878,41 @@ class FrameCryptor extends BaseFrameCryptor {
     this.rtpMap = map;
   }
   setupTransform(operation, readable, writable, trackId, isReuse, codec) {
-    workerLogger.info("".concat(E2EE_CRYPTOR_LOG_PREFIX, " setupTransform starts"), Object.assign(Object.assign({}, this.logContext), {
-      trackId,
-      isReuse,
-      codec,
-      operation
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " setupTransform starts"),
+        properties: Object.assign(Object.assign({}, this.logContext), {
+          trackId,
+          isReuse,
+          codec,
+          operation
+        })
+      }
+    });
     if (codec) {
-      workerLogger.info("".concat(E2EE_CRYPTOR_LOG_PREFIX, " setting codec on cryptor"), Object.assign(Object.assign({}, this.logContext), {
-        trackId,
-        codec
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " setting codec on cryptor"),
+          properties: Object.assign(Object.assign({}, this.logContext), {
+            trackId,
+            codec
+          })
+        }
+      });
       this.videoCodec = codec;
     }
     if (isReuse && this.isTransformActive) {
-      workerLogger.info("".concat(E2EE_CRYPTOR_LOG_PREFIX, " reusing active transform, returning from setupTransform"), Object.assign(Object.assign({}, this.logContext), {
-        trackId
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " reusing active transform, returning from setupTransform"),
+          properties: Object.assign(Object.assign({}, this.logContext), {
+            trackId
+          })
+        }
+      });
       return;
     }
     const transformFn = operation === 'encode' ? this.encodeFunction : this.decodeFunction;
@@ -1232,10 +921,16 @@ class FrameCryptor extends BaseFrameCryptor {
     });
     this.isTransformActive = true;
     readable.pipeThrough(transformStream).pipeTo(writable).catch(e => {
-      workerLogger.error("".concat(E2EE_CRYPTOR_LOG_PREFIX, " error in readable pipe"), Object.assign(Object.assign({}, this.logContext), {
-        trackId,
-        e
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " error in readable pipe"),
+          properties: Object.assign(Object.assign({}, this.logContext), {
+            trackId,
+            e
+          })
+        }
+      });
       this.emit(CryptorEvent.Error, e instanceof CryptorError ? e : new CryptorError(e.message, undefined, this.participantIdentity));
     }).finally(() => {
       this.isTransformActive = false;
@@ -1243,9 +938,15 @@ class FrameCryptor extends BaseFrameCryptor {
     this.trackId = trackId;
   }
   setSifTrailer(trailer) {
-    workerLogger.info("".concat(E2EE_CRYPTOR_LOG_PREFIX, " setting sif trailer"), Object.assign(Object.assign({}, this.logContext), {
-      trailer
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " setting sif trailer"),
+        properties: Object.assign(Object.assign({}, this.logContext), {
+          trailer
+        })
+      }
+    });
     this.sifTrailer = trailer;
   }
   /**
@@ -1280,9 +981,6 @@ class FrameCryptor extends BaseFrameCryptor {
       }
       const keySet = this.keys.getKeySet();
       if (!keySet) {
-        workerLogger.error("".concat(E2EE_CRYPTOR_LOG_PREFIX, " key set not found"), Object.assign(Object.assign({}, this.logContext), {
-          currentIndex: this.keys.getCurrentKeyIndex()
-        }));
         this.emit(CryptorEvent.Error, new CryptorError("key set not found for ".concat(this.participantIdentity, " at index ").concat(this.keys.getCurrentKeyIndex()), CryptorErrorReason.MissingKey, this.participantIdentity));
         return;
       }
@@ -1326,10 +1024,24 @@ class FrameCryptor extends BaseFrameCryptor {
           return controller.enqueue(encodedFrame);
         } catch (e) {
           // TODO: surface this to the app.
-          workerLogger.error(e);
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " encryption error"),
+              properties: Object.assign(Object.assign({}, this.logContext), {
+                error: e
+              })
+            }
+          });
         }
       } else {
-        workerLogger.error("".concat(E2EE_CRYPTOR_LOG_PREFIX, " encryption key not found. Encryption failed"), this.logContext);
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " encryption key not found. Encryption failed"),
+            properties: this.logContext
+          }
+        });
         this.emit(CryptorEvent.Error, new CryptorError("encryption key missing for encoding", CryptorErrorReason.MissingKey, this.participantIdentity));
       }
     });
@@ -1349,13 +1061,18 @@ class FrameCryptor extends BaseFrameCryptor {
         return controller.enqueue(encodedFrame);
       }
       if (isFrameServerInjected(encodedFrame.data, this.sifTrailer)) {
-        workerLogger.debug('enqueue SIF', this.logContext);
         this.sifGuard.recordSif();
         if (this.sifGuard.isSifAllowed()) {
           encodedFrame.data = encodedFrame.data.slice(0, encodedFrame.data.byteLength - this.sifTrailer.byteLength);
           return controller.enqueue(encodedFrame);
         } else {
-          workerLogger.warn("".concat(E2EE_CRYPTOR_LOG_PREFIX, " SIF limit reached, dropping frame"), this.logContext);
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " SIF limit reached, dropping frame"),
+              properties: this.logContext
+            }
+          });
           return;
         }
       } else {
@@ -1364,9 +1081,15 @@ class FrameCryptor extends BaseFrameCryptor {
       const data = new Uint8Array(encodedFrame.data);
       const keyIndex = data[encodedFrame.data.byteLength - 1];
       if (this.keys.hasInvalidKeyAtIndex(keyIndex)) {
-        workerLogger.warn("".concat(E2EE_CRYPTOR_LOG_PREFIX, " has invalid key at index, dropping frame"), Object.assign(Object.assign({}, this.logContext), {
-          keyIndex
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " has invalid key at index, dropping frame"),
+            properties: Object.assign(Object.assign({}, this.logContext), {
+              keyIndex
+            })
+          }
+        });
         // drop frame
         return;
       }
@@ -1379,31 +1102,46 @@ class FrameCryptor extends BaseFrameCryptor {
           }
         } catch (error) {
           if (error instanceof CryptorError && error.reason === CryptorErrorReason.InvalidKey) {
-            workerLogger.warn("".concat(E2EE_CRYPTOR_LOG_PREFIX, " failed decoding a frame with a reason InvalidKey. Will emit the error if handler thinks we have a valid key"), Object.assign(Object.assign({}, this.logContext), {
-              keyIndex,
-              hasValidKey: this.keys.hasValidKey
-            }));
+            postMessage({
+              kind: 'logging',
+              data: {
+                message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " failed decoding a frame with a reason InvalidKey. Will emit the error if handler thinks we have a valid key"),
+                properties: Object.assign(Object.assign({}, this.logContext), {
+                  keyIndex,
+                  hasValidKey: this.keys.hasValidKey
+                })
+              }
+            });
             // emit an error if the key handler thinks we have a valid key
             if (this.keys.hasValidKey) {
-              workerLogger.warn("".concat(E2EE_CRYPTOR_LOG_PREFIX, " emiting error"), Object.assign(Object.assign({}, this.logContext), {
-                keyIndex
-              }));
+              postMessage({
+                kind: 'logging',
+                data: {
+                  message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " emiting error"),
+                  properties: Object.assign(Object.assign({}, this.logContext), {
+                    keyIndex
+                  })
+                }
+              });
               this.emit(CryptorEvent.Error, error);
               this.keys.decryptionFailure(keyIndex);
             }
           } else {
-            workerLogger.error("".concat(E2EE_CRYPTOR_LOG_PREFIX, " decoding frame failed"), Object.assign(Object.assign({}, this.logContext), {
-              keyIndex,
-              hasValidKey: this.keys.hasValidKey,
-              error
-            }));
+            postMessage({
+              kind: 'logging',
+              data: {
+                message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " decoding frame failed"),
+                properties: Object.assign(Object.assign({}, this.logContext), {
+                  keyIndex,
+                  hasValidKey: this.keys.hasValidKey,
+                  error
+                })
+              }
+            });
           }
         }
       } else {
         // emit an error if the key index is out of bounds but the key handler thinks we still have a valid key
-        workerLogger.error("".concat(E2EE_CRYPTOR_LOG_PREFIX, " skipping decryption due to missing key at index"), Object.assign(Object.assign({}, this.logContext), {
-          keyIndex
-        }));
         this.emit(CryptorEvent.Error, new CryptorError("missing key at index ".concat(keyIndex, " for participant ").concat(this.participantIdentity), CryptorErrorReason.MissingKey, this.participantIdentity));
         this.keys.decryptionFailure(keyIndex);
       }
@@ -1424,11 +1162,17 @@ class FrameCryptor extends BaseFrameCryptor {
         var _a;
         const keySet = _this.keys.getKeySet(keyIndex);
         if (!ratchetOpts.encryptionKey && !keySet) {
-          workerLogger.error("".concat(E2EE_CRYPTOR_LOG_PREFIX, " no encryption key found for decryption"), Object.assign(Object.assign({}, _this.logContext), {
-            keyIndex,
-            ratchetOpts,
-            keySet
-          }));
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " no encryption key found for decryption"),
+              properties: Object.assign(Object.assign({}, _this.logContext), {
+                keyIndex,
+                ratchetOpts,
+                keySet
+              })
+            }
+          });
           throw new TypeError("no encryption key found for decryption of ".concat(_this.participantIdentity));
         }
         let frameInfo = _this.getUnencryptedBytes(encodedFrame);
@@ -1468,27 +1212,57 @@ class FrameCryptor extends BaseFrameCryptor {
         } catch (error) {
           if (_this.keyProviderOptions.ratchetWindowSize > 0) {
             if (ratchetOpts.ratchetCount < _this.keyProviderOptions.ratchetWindowSize) {
-              workerLogger.warn("ratcheting key attempt ".concat(ratchetOpts.ratchetCount, " of ").concat(_this.keyProviderOptions.ratchetWindowSize, ", for kind ").concat(encodedFrame instanceof RTCEncodedAudioFrame ? 'audio' : 'video'), _this.logContext);
-              workerLogger.warn("".concat(E2EE_CRYPTOR_LOG_PREFIX, " ratcheting key attempt ").concat(ratchetOpts.ratchetCount, " of ").concat(_this.keyProviderOptions.ratchetWindowSize, ", for kind ").concat(encodedFrame instanceof RTCEncodedAudioFrame ? 'audio' : 'video'), Object.assign(Object.assign({}, _this.logContext), {
-                keyIndex
-              }));
+              postMessage({
+                kind: 'logging',
+                data: {
+                  message: "ratcheting key attempt ".concat(ratchetOpts.ratchetCount, " of ").concat(_this.keyProviderOptions.ratchetWindowSize, ", for kind ").concat(encodedFrame instanceof RTCEncodedAudioFrame ? 'audio' : 'video'),
+                  properties: _this.logContext
+                }
+              });
+              postMessage({
+                kind: 'logging',
+                data: {
+                  message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " ratcheting key attempt ").concat(ratchetOpts.ratchetCount, " of ").concat(_this.keyProviderOptions.ratchetWindowSize, ", for kind ").concat(encodedFrame instanceof RTCEncodedAudioFrame ? 'audio' : 'video'),
+                  properties: Object.assign(Object.assign({}, _this.logContext), {
+                    keyIndex
+                  })
+                }
+              });
               let ratchetedKeySet;
               let ratchetResult;
               if ((initialMaterial !== null && initialMaterial !== void 0 ? initialMaterial : keySet) === _this.keys.getKeySet(keyIndex)) {
-                workerLogger.info("".concat(E2EE_CRYPTOR_LOG_PREFIX, " starting ratchetKey and deriveKeys"), Object.assign(Object.assign({}, _this.logContext), {
-                  keyIndex
-                }));
+                postMessage({
+                  kind: 'logging',
+                  data: {
+                    message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " starting ratchetKey and deriveKeys"),
+                    properties: Object.assign(Object.assign({}, _this.logContext), {
+                      keyIndex
+                    })
+                  }
+                });
                 // only ratchet if the currently set key is still the same as the one used to decrypt this frame
                 // if not, it might be that a different frame has already ratcheted and we try with that one first
                 ratchetResult = yield _this.keys.ratchetKey(keyIndex, false);
                 ratchetedKeySet = yield deriveKeys(ratchetResult.cryptoKey, _this.keyProviderOptions.ratchetSalt);
-                workerLogger.info("".concat(E2EE_CRYPTOR_LOG_PREFIX, " completed ratchetKey and deriveKeys"), Object.assign(Object.assign({}, _this.logContext), {
-                  keyIndex
-                }));
+                postMessage({
+                  kind: 'logging',
+                  data: {
+                    message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " completed ratchetKey and deriveKeys"),
+                    properties: Object.assign(Object.assign({}, _this.logContext), {
+                      keyIndex
+                    })
+                  }
+                });
               } else {
-                workerLogger.warn("".concat(E2EE_CRYPTOR_LOG_PREFIX, " skipping ratchetKey"), Object.assign(Object.assign({}, _this.logContext), {
-                  keyIndex
-                }));
+                postMessage({
+                  kind: 'logging',
+                  data: {
+                    message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " skipping ratchetKey"),
+                    properties: Object.assign(Object.assign({}, _this.logContext), {
+                      keyIndex
+                    })
+                  }
+                });
               }
               const frame = yield _this.decryptFrame(encodedFrame, keyIndex, initialMaterial || keySet, {
                 ratchetCount: ratchetOpts.ratchetCount + 1,
@@ -1510,16 +1284,28 @@ class FrameCryptor extends BaseFrameCryptor {
                * we can be sure that we don't need to reset the key to the initial material at this point
                * as the key has not been updated on the keyHandler instance
                */
-              workerLogger.error("".concat(E2EE_CRYPTOR_LOG_PREFIX, " maximum ratchet attempts exceeded, valid key missing for participant ").concat(_this.participantIdentity), Object.assign(Object.assign({}, _this.logContext), {
-                keyIndex
-              }));
+              postMessage({
+                kind: 'logging',
+                data: {
+                  message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " maximum ratchet attempts exceeded, valid key missing for participant ").concat(_this.participantIdentity),
+                  properties: Object.assign(Object.assign({}, _this.logContext), {
+                    keyIndex
+                  })
+                }
+              });
               throw new CryptorError("valid key missing for participant ".concat(_this.participantIdentity), CryptorErrorReason.InvalidKey, _this.participantIdentity);
             }
           } else {
-            workerLogger.error("".concat(E2EE_CRYPTOR_LOG_PREFIX, " decryption failed with an InvalidKey reason"), Object.assign(Object.assign({}, _this.logContext), {
-              keyIndex,
-              error
-            }));
+            postMessage({
+              kind: 'logging',
+              data: {
+                message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " decryption failed with an InvalidKey reason"),
+                properties: Object.assign(Object.assign({}, _this.logContext), {
+                  keyIndex,
+                  error
+                })
+              }
+            });
             throw new CryptorError("Decryption failed: ".concat(error.message), CryptorErrorReason.InvalidKey, _this.participantIdentity);
           }
         }
@@ -1570,14 +1356,26 @@ class FrameCryptor extends BaseFrameCryptor {
     if (isVideoFrame(frame)) {
       let detectedCodec = (_a = this.getVideoCodec(frame)) !== null && _a !== void 0 ? _a : this.videoCodec;
       if (detectedCodec !== this.detectedCodec) {
-        workerLogger.warn("".concat(E2EE_CRYPTOR_LOG_PREFIX, " detected different codec"), Object.assign(Object.assign({}, this.logContext), {
-          detectedCodec,
-          oldCodec: this.detectedCodec
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " detected different codec"),
+            properties: Object.assign(Object.assign({}, this.logContext), {
+              detectedCodec,
+              oldCodec: this.detectedCodec
+            })
+          }
+        });
         this.detectedCodec = detectedCodec;
       }
       if (detectedCodec === 'av1') {
-        workerLogger.warn("".concat(E2EE_CRYPTOR_LOG_PREFIX, " ").concat(detectedCodec, " is not yet supported for end to end encryption"), this.logContext);
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " ").concat(detectedCodec, " is not yet supported for end to end encryption"),
+            properties: this.logContext
+          }
+        });
         throw new Error("".concat(detectedCodec, " is not yet supported for end to end encryption"));
       }
       if (detectedCodec === 'vp8') {
@@ -1744,10 +1542,16 @@ class ParticipantKeyHandler extends eventsExports.EventEmitter {
     this.ratchetPromiseMap = new Map();
     this.participantIdentity = participantIdentity;
     this.localParticipantLogSessionId = logSessionId;
-    workerLogger.info("".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " initialized key handler"), Object.assign(Object.assign({}, this.logContext), {
-      keyProviderOptions,
-      participantIdentity
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " initialized key handler"),
+        properties: Object.assign(Object.assign({}, this.logContext), {
+          keyProviderOptions,
+          participantIdentity
+        })
+      }
+    });
   }
   get logContext() {
     return {
@@ -1775,9 +1579,15 @@ class ParticipantKeyHandler extends eventsExports.EventEmitter {
     }
     this.decryptionFailureCounts[keyIndex] += 1;
     if (this.decryptionFailureCounts[keyIndex] > this.keyProviderOptions.failureTolerance) {
-      workerLogger.warn("".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " key for ").concat(this.participantIdentity, " at index ").concat(keyIndex, " is being marked as invalid"), Object.assign(Object.assign({}, this.logContext), {
-        keyIndex
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " key for ").concat(this.participantIdentity, " at index ").concat(keyIndex, " is being marked as invalid"),
+          properties: Object.assign(Object.assign({}, this.logContext), {
+            keyIndex
+          })
+        }
+      });
     }
   }
   /**
@@ -1812,40 +1622,70 @@ class ParticipantKeyHandler extends eventsExports.EventEmitter {
   ratchetKey(keyIndex) {
     let setKey = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : true;
     const currentKeyIndex = keyIndex !== null && keyIndex !== void 0 ? keyIndex : this.getCurrentKeyIndex();
-    workerLogger.warn("".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " ratchetKey starts"), Object.assign(Object.assign({}, this.logContext), {
-      keyIndex,
-      currentKeyIndex,
-      setKey
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " ratchetKey starts"),
+        properties: Object.assign(Object.assign({}, this.logContext), {
+          keyIndex,
+          currentKeyIndex,
+          setKey
+        })
+      }
+    });
     const existingPromise = this.ratchetPromiseMap.get(currentKeyIndex);
     if (typeof existingPromise !== 'undefined') {
-      workerLogger.warn("".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " already has a promise for ratchetKey, returning"), Object.assign(Object.assign({}, this.logContext), {
-        keyIndex,
-        currentKeyIndex
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " already has a promise for ratchetKey, returning"),
+          properties: Object.assign(Object.assign({}, this.logContext), {
+            keyIndex,
+            currentKeyIndex
+          })
+        }
+      });
       return existingPromise;
     }
     const ratchetPromise = new Promise((resolve, reject) => __awaiter(this, void 0, void 0, function* () {
       try {
         const keySet = this.getKeySet(currentKeyIndex);
         if (!keySet) {
-          workerLogger.error("".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " cannot ratchet key without a valid keyset of participant ").concat(this.participantIdentity), Object.assign(Object.assign({}, this.logContext), {
-            keyIndex,
-            currentKeyIndex
-          }));
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: "".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " cannot ratchet key without a valid keyset of participant ").concat(this.participantIdentity),
+              properties: Object.assign(Object.assign({}, this.logContext), {
+                keyIndex,
+                currentKeyIndex
+              })
+            }
+          });
           throw new TypeError("Cannot ratchet key without a valid keyset of participant ".concat(this.participantIdentity));
         }
         const currentMaterial = keySet.material;
-        workerLogger.info("".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " will start ratchet and importKey"), Object.assign(Object.assign({}, this.logContext), {
-          keyIndex,
-          currentKeyIndex
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " will start ratchet and importKey"),
+            properties: Object.assign(Object.assign({}, this.logContext), {
+              keyIndex,
+              currentKeyIndex
+            })
+          }
+        });
         const chainKey = yield ratchet(currentMaterial, this.keyProviderOptions.ratchetSalt);
         const newMaterial = yield importKey(chainKey, currentMaterial.algorithm.name, 'derive');
-        workerLogger.info("".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " ratchet and importKey completed"), Object.assign(Object.assign({}, this.logContext), {
-          keyIndex,
-          currentKeyIndex
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " ratchet and importKey completed"),
+            properties: Object.assign(Object.assign({}, this.logContext), {
+              keyIndex,
+              currentKeyIndex
+            })
+          }
+        });
         const ratchetResult = {
           chainKey,
           cryptoKey: newMaterial
@@ -1891,37 +1731,67 @@ class ParticipantKeyHandler extends eventsExports.EventEmitter {
       var _this2 = this;
       let ratchetedResult = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : null;
       return function* () {
-        workerLogger.info("".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " setting new key from material"), Object.assign(Object.assign({}, _this2.logContext), {
-          keyIndex,
-          usage: material.usages,
-          algorithm: material.algorithm,
-          ratchetSalt: _this2.keyProviderOptions.ratchetSalt
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " setting new key from material"),
+            properties: Object.assign(Object.assign({}, _this2.logContext), {
+              keyIndex,
+              usage: material.usages,
+              algorithm: material.algorithm,
+              ratchetSalt: _this2.keyProviderOptions.ratchetSalt
+            })
+          }
+        });
         const keySet = yield deriveKeys(material, _this2.keyProviderOptions.ratchetSalt);
         const newIndex = keyIndex >= 0 ? keyIndex % _this2.cryptoKeyRing.length : _this2.currentKeyIndex;
         _this2.setKeySet(keySet, newIndex, ratchetedResult);
         if (newIndex >= 0) _this2.currentKeyIndex = newIndex;
-        workerLogger.info("".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " completed setting new key from material"), Object.assign(Object.assign({}, _this2.logContext), {
-          keyIndex
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " completed setting new key from material"),
+            properties: Object.assign(Object.assign({}, _this2.logContext), {
+              keyIndex
+            })
+          }
+        });
       }();
     });
   }
   setKeySet(keySet, keyIndex) {
     let ratchetedResult = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : null;
     this.cryptoKeyRing[keyIndex % this.cryptoKeyRing.length] = keySet;
-    workerLogger.info("".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " setting key set"), Object.assign(Object.assign({}, this.logContext), {
-      keyIndex
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " setting key set"),
+        properties: Object.assign(Object.assign({}, this.logContext), {
+          keyIndex
+        })
+      }
+    });
     if (ratchetedResult) {
-      workerLogger.info("".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " emitting KeyHandlerEvent.KeyRatcheted"), Object.assign(Object.assign({}, this.logContext), {
-        keyIndex
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " emitting KeyHandlerEvent.KeyRatcheted"),
+          properties: Object.assign(Object.assign({}, this.logContext), {
+            keyIndex
+          })
+        }
+      });
       this.emit(KeyHandlerEvent.KeyRatcheted, ratchetedResult, this.participantIdentity, keyIndex);
     } else {
-      workerLogger.warn("".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " no ratchetedResult, will not emit KeyHandlerEvent.KeyRatcheted"), Object.assign(Object.assign({}, this.logContext), {
-        keyIndex
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_KEY_HANDLER_LOG_PREFIX, " no ratchetedResult, will not emit KeyHandlerEvent.KeyRatcheted"),
+          properties: Object.assign(Object.assign({}, this.logContext), {
+            keyIndex
+          })
+        }
+      });
     }
   }
   setCurrentKeyIndex(index) {
@@ -1957,7 +1827,6 @@ let logSessionId = null;
 const getLogContext = () => ({
   logSessionId
 });
-workerLogger.setDefaultLevel('info');
 onmessage = ev => {
   messageQueue.run(() => __awaiter(void 0, void 0, void 0, function* () {
     const {
@@ -1966,8 +1835,15 @@ onmessage = ev => {
     } = ev.data;
     switch (kind) {
       case 'init':
-        workerLogger.setLevel(data.loglevel);
-        workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " worker initialized. Posting acknowledgement"), getLogContext());
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_WORKER_LOG_PREFIX, " worker initialized. Posting acknowledgement"),
+            properties: {
+              logSessionId: data.logSessionId
+            }
+          }
+        });
         keyProviderOptions = data.keyProviderOptions;
         useSharedKey = !!data.keyProviderOptions.sharedKey;
         logSessionId = data.logSessionId;
@@ -1982,74 +1858,140 @@ onmessage = ev => {
         break;
       case 'enable':
         setEncryptionEnabled(data.enabled, data.participantIdentity);
-        workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " updated e2ee enabled status for ").concat(data.participantIdentity, " to ").concat(data.enabled), getLogContext());
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_WORKER_LOG_PREFIX, " updated e2ee enabled status for ").concat(data.participantIdentity, " to ").concat(data.enabled),
+            properties: getLogContext()
+          }
+        });
         // acknowledge enable call successful
         postMessage(ev.data);
         break;
       case 'decode':
         let cryptor = getTrackCryptor(data.participantIdentity, data.trackId);
         cryptor.setupTransform(kind, data.readableStream, data.writableStream, data.trackId, data.isReuse, data.codec);
-        workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " received \"decode\". Running setupTransform on cryptor"), Object.assign(Object.assign({}, getLogContext()), {
-          participantIdentity: data.participantIdentity,
-          trackId: data.trackId
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_WORKER_LOG_PREFIX, " received \"decode\". Running setupTransform on cryptor"),
+            properties: Object.assign(Object.assign({}, getLogContext()), {
+              participantIdentity: data.participantIdentity,
+              trackId: data.trackId
+            })
+          }
+        });
         break;
       case 'encode':
         let pubCryptor = getTrackCryptor(data.participantIdentity, data.trackId);
         pubCryptor.setupTransform(kind, data.readableStream, data.writableStream, data.trackId, data.isReuse, data.codec);
-        workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " received \"encode\". Running setupTransform on pubCryptor"), Object.assign(Object.assign({}, getLogContext()), {
-          participantIdentity: data.participantIdentity,
-          trackId: data.trackId
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_WORKER_LOG_PREFIX, " received \"encode\". Running setupTransform on pubCryptor"),
+            properties: Object.assign(Object.assign({}, getLogContext()), {
+              participantIdentity: data.participantIdentity,
+              trackId: data.trackId
+            })
+          }
+        });
         break;
       case 'setKey':
-        workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " received \"setKey\""), Object.assign(Object.assign({}, getLogContext()), {
-          participantIdentity: data.participantIdentity,
-          keyIndex: data.keyIndex,
-          useSharedKey
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_WORKER_LOG_PREFIX, " received \"setKey\""),
+            properties: Object.assign(Object.assign({}, getLogContext()), {
+              participantIdentity: data.participantIdentity,
+              keyIndex: data.keyIndex,
+              useSharedKey
+            })
+          }
+        });
         if (useSharedKey) {
           yield setSharedKey(data.key, data.keyIndex);
-          workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " successfully set shared key"), Object.assign(Object.assign({}, getLogContext()), {
-            participantIdentity: data.participantIdentity,
-            keyIndex: data.keyIndex
-          }));
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: "".concat(E2EE_WORKER_LOG_PREFIX, " successfully set shared key"),
+              properties: Object.assign(Object.assign({}, getLogContext()), {
+                participantIdentity: data.participantIdentity,
+                keyIndex: data.keyIndex
+              })
+            }
+          });
         } else if (data.participantIdentity) {
-          workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " will set key on participant key handler"), Object.assign(Object.assign({}, getLogContext()), {
-            participantIdentity: data.participantIdentity,
-            keyIndex: data.keyIndex
-          }));
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: "".concat(E2EE_WORKER_LOG_PREFIX, " will set key on participant key handler"),
+              properties: Object.assign(Object.assign({}, getLogContext()), {
+                participantIdentity: data.participantIdentity,
+                keyIndex: data.keyIndex
+              })
+            }
+          });
           yield getParticipantKeyHandler(data.participantIdentity).setKey(data.key, data.keyIndex);
-          workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " successfully set key on participant key handler"), Object.assign(Object.assign({}, getLogContext()), {
-            participantIdentity: data.participantIdentity,
-            keyIndex: data.keyIndex
-          }));
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: "".concat(E2EE_WORKER_LOG_PREFIX, " successfully set key on participant key handler"),
+              properties: Object.assign(Object.assign({}, getLogContext()), {
+                participantIdentity: data.participantIdentity,
+                keyIndex: data.keyIndex
+              })
+            }
+          });
         } else {
-          workerLogger.error("".concat(E2EE_WORKER_LOG_PREFIX, " no participant Id was provided and shared key usage is disabled"), Object.assign(Object.assign({}, getLogContext()), {
-            participantIdentity: data.participantIdentity,
-            keyIndex: data.keyIndex
-          }));
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: "".concat(E2EE_WORKER_LOG_PREFIX, " no participant Id was provided and shared key usage is disabled"),
+              properties: Object.assign(Object.assign({}, getLogContext()), {
+                participantIdentity: data.participantIdentity,
+                keyIndex: data.keyIndex
+              })
+            }
+          });
         }
         break;
       case 'removeTransform':
-        workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " received \"removeTransform\", will unset cryptor for participant"), Object.assign(Object.assign({}, getLogContext()), {
-          participantIdentity: data.participantIdentity,
-          trackId: data.trackId
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_WORKER_LOG_PREFIX, " received \"removeTransform\", will unset cryptor for participant"),
+            properties: Object.assign(Object.assign({}, getLogContext()), {
+              participantIdentity: data.participantIdentity,
+              trackId: data.trackId
+            })
+          }
+        });
         unsetCryptorParticipant(data.trackId, data.participantIdentity);
         break;
       case 'updateCodec':
-        workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " received \"updateCodec\", will set a video codec for track cryptor"), Object.assign(Object.assign({}, getLogContext()), {
-          participantIdentity: data.participantIdentity,
-          trackId: data.trackId,
-          newCodec: data.codec
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_WORKER_LOG_PREFIX, " received \"updateCodec\", will set a video codec for track cryptor"),
+            properties: Object.assign(Object.assign({}, getLogContext()), {
+              participantIdentity: data.participantIdentity,
+              trackId: data.trackId,
+              newCodec: data.codec
+            })
+          }
+        });
         getTrackCryptor(data.participantIdentity, data.trackId).setVideoCodec(data.codec);
         break;
       case 'setRTPMap':
-        workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " received \"setRTPMap\", will set a rtp map for cryptors"), Object.assign(Object.assign({}, getLogContext()), {
-          participantIdentity: data.participantIdentity
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_WORKER_LOG_PREFIX, " received \"setRTPMap\", will set a rtp map for cryptors"),
+            properties: Object.assign(Object.assign({}, getLogContext()), {
+              participantIdentity: data.participantIdentity
+            })
+          }
+        });
         // this is only used for the local participant
         rtpMap = data.map;
         participantCryptors.forEach(cr => {
@@ -2059,13 +2001,25 @@ onmessage = ev => {
         });
         break;
       case 'ratchetRequest':
-        workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " received \"ratchetRequest\""), Object.assign(Object.assign({}, getLogContext()), {
-          participantIdentity: data.participantIdentity
-        }));
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_WORKER_LOG_PREFIX, " received \"ratchetRequest\""),
+            properties: Object.assign(Object.assign({}, getLogContext()), {
+              participantIdentity: data.participantIdentity
+            })
+          }
+        });
         handleRatchetRequest(data);
         break;
       case 'setSifTrailer':
-        workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " received \"setSifTrailer\""), getLogContext());
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: "".concat(E2EE_WORKER_LOG_PREFIX, " received \"setSifTrailer\""),
+            properties: getLogContext()
+          }
+        });
         handleSifTrailer(data.trailer);
         break;
     }
@@ -2074,29 +2028,59 @@ onmessage = ev => {
 function handleRatchetRequest(data) {
   return __awaiter(this, void 0, void 0, function* () {
     if (useSharedKey) {
-      workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " handling ratchet request when using shared key"), Object.assign(Object.assign({}, getLogContext()), {
-        participantIdentity: data.participantIdentity
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_WORKER_LOG_PREFIX, " handling ratchet request when using shared key"),
+          properties: Object.assign(Object.assign({}, getLogContext()), {
+            participantIdentity: data.participantIdentity
+          })
+        }
+      });
       const keyHandler = getSharedKeyHandler();
       yield keyHandler.ratchetKey(data.keyIndex);
       keyHandler.resetKeyStatus();
-      workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " ratchet key successfully handled"), Object.assign(Object.assign({}, getLogContext()), {
-        participantIdentity: data.participantIdentity
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_WORKER_LOG_PREFIX, " ratchet key successfully handled"),
+          properties: Object.assign(Object.assign({}, getLogContext()), {
+            participantIdentity: data.participantIdentity
+          })
+        }
+      });
     } else if (data.participantIdentity) {
-      workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " handling ratchet request without a shared key"), Object.assign(Object.assign({}, getLogContext()), {
-        participantIdentity: data.participantIdentity
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_WORKER_LOG_PREFIX, " handling ratchet request without a shared key"),
+          properties: Object.assign(Object.assign({}, getLogContext()), {
+            participantIdentity: data.participantIdentity
+          })
+        }
+      });
       const keyHandler = getParticipantKeyHandler(data.participantIdentity);
       yield keyHandler.ratchetKey(data.keyIndex);
       keyHandler.resetKeyStatus();
-      workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " ratchet key successfully handled"), Object.assign(Object.assign({}, getLogContext()), {
-        participantIdentity: data.participantIdentity
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_WORKER_LOG_PREFIX, " ratchet key successfully handled"),
+          properties: Object.assign(Object.assign({}, getLogContext()), {
+            participantIdentity: data.participantIdentity
+          })
+        }
+      });
     } else {
-      workerLogger.error("".concat(E2EE_WORKER_LOG_PREFIX, " no participant ID was provided for ratchet request and shared key usage is disabled"), Object.assign(Object.assign({}, getLogContext()), {
-        participantIdentity: data.participantIdentity
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_WORKER_LOG_PREFIX, " no participant ID was provided for ratchet request and shared key usage is disabled"),
+          properties: Object.assign(Object.assign({}, getLogContext()), {
+            participantIdentity: data.participantIdentity
+          })
+        }
+      });
     }
   });
 }
@@ -2108,23 +2092,41 @@ function getTrackCryptor(participantIdentity, trackId) {
         participant: c.getParticipantIdentity()
       };
     }).join(',');
-    workerLogger.error("".concat(E2EE_WORKER_LOG_PREFIX, " found multiple cryptors for the same trackID"), Object.assign(Object.assign({}, getLogContext()), {
-      trackId,
-      participantIdentity,
-      debugInfo
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_WORKER_LOG_PREFIX, " found multiple cryptors for the same trackID"),
+        properties: Object.assign(Object.assign({}, getLogContext()), {
+          trackId,
+          participantIdentity,
+          debugInfo
+        })
+      }
+    });
   }
   let cryptor = cryptors[0];
   if (!cryptor) {
-    workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " creating new cryptor"), Object.assign(Object.assign({}, getLogContext()), {
-      trackId,
-      participantIdentity
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_WORKER_LOG_PREFIX, " creating new cryptor"),
+        properties: Object.assign(Object.assign({}, getLogContext()), {
+          trackId,
+          participantIdentity
+        })
+      }
+    });
     if (!keyProviderOptions) {
-      workerLogger.error("".concat(E2EE_WORKER_LOG_PREFIX, " tried to get the track cryptor, but missing keyProvider options"), Object.assign(Object.assign({}, getLogContext()), {
-        trackId,
-        participantIdentity
-      }));
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: "".concat(E2EE_WORKER_LOG_PREFIX, " tried to get the track cryptor, but missing keyProvider options"),
+          properties: Object.assign(Object.assign({}, getLogContext()), {
+            trackId,
+            participantIdentity
+          })
+        }
+      });
       throw Error('Missing keyProvider options');
     }
     cryptor = new FrameCryptor({
@@ -2138,27 +2140,45 @@ function getTrackCryptor(participantIdentity, trackId) {
     setupCryptorErrorEvents(cryptor);
     participantCryptors.push(cryptor);
   } else if (participantIdentity !== cryptor.getParticipantIdentity()) {
-    workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " assigning a new participant id to track cryptor and passing in a correct key handler"), Object.assign(Object.assign({}, getLogContext()), {
-      trackId,
-      participantIdentity
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_WORKER_LOG_PREFIX, " assigning a new participant id to track cryptor and passing in a correct key handler"),
+        properties: Object.assign(Object.assign({}, getLogContext()), {
+          trackId,
+          participantIdentity
+        })
+      }
+    });
     // assign new participant id to track cryptor and pass in correct key handler
     cryptor.setParticipant(participantIdentity, getParticipantKeyHandler(participantIdentity));
   }
   return cryptor;
 }
 function getParticipantKeyHandler(participantIdentity) {
-  workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " getting participant key handler"), Object.assign(Object.assign({}, getLogContext()), {
-    participantIdentity
-  }));
+  postMessage({
+    kind: 'logging',
+    data: {
+      message: "".concat(E2EE_WORKER_LOG_PREFIX, " getting participant key handler"),
+      properties: Object.assign(Object.assign({}, getLogContext()), {
+        participantIdentity
+      })
+    }
+  });
   if (useSharedKey) {
     return getSharedKeyHandler();
   }
   let keys = participantKeys.get(participantIdentity);
   if (!keys) {
-    workerLogger.warn("".concat(E2EE_WORKER_LOG_PREFIX, " participant had no keys, creating new participantKeyHandler"), Object.assign(Object.assign({}, getLogContext()), {
-      participantIdentity
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_WORKER_LOG_PREFIX, " participant had no keys, creating new participantKeyHandler"),
+        properties: Object.assign(Object.assign({}, getLogContext()), {
+          participantIdentity
+        })
+      }
+    });
     keys = new ParticipantKeyHandler(participantIdentity, keyProviderOptions, logSessionId);
     keys.on(KeyHandlerEvent.KeyRatcheted, emitRatchetedKeys);
     participantKeys.set(participantIdentity, keys);
@@ -2166,9 +2186,21 @@ function getParticipantKeyHandler(participantIdentity) {
   return keys;
 }
 function getSharedKeyHandler() {
-  workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " getting shared key handler"), getLogContext());
+  postMessage({
+    kind: 'logging',
+    data: {
+      message: "".concat(E2EE_WORKER_LOG_PREFIX, " getting shared key handler"),
+      properties: getLogContext()
+    }
+  });
   if (!sharedKeyHandler) {
-    workerLogger.warn("".concat(E2EE_WORKER_LOG_PREFIX, " had no shared key handler, creating new shared key handler"), getLogContext());
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_WORKER_LOG_PREFIX, " had no shared key handler, creating new shared key handler"),
+        properties: getLogContext()
+      }
+    });
     sharedKeyHandler = new ParticipantKeyHandler('shared-key', keyProviderOptions, logSessionId);
   }
   return sharedKeyHandler;
@@ -2176,30 +2208,54 @@ function getSharedKeyHandler() {
 function unsetCryptorParticipant(trackId, participantIdentity) {
   const cryptors = participantCryptors.filter(c => c.getParticipantIdentity() === participantIdentity && c.getTrackId() === trackId);
   if (cryptors.length > 1) {
-    workerLogger.error("".concat(E2EE_WORKER_LOG_PREFIX, " tried to unset a cryptor, but found multiple cryptors for the same participant and trackID combination"), Object.assign(Object.assign({}, getLogContext()), {
-      trackId,
-      participantIdentity
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_WORKER_LOG_PREFIX, " tried to unset a cryptor, but found multiple cryptors for the same participant and trackID combination"),
+        properties: Object.assign(Object.assign({}, getLogContext()), {
+          trackId,
+          participantIdentity
+        })
+      }
+    });
   }
   const cryptor = cryptors[0];
   if (!cryptor) {
-    workerLogger.error("".concat(E2EE_WORKER_LOG_PREFIX, " could not unset participant on cryptor, no cryptor was found for participant"), Object.assign(Object.assign({}, getLogContext()), {
-      trackId,
-      participantIdentity
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_WORKER_LOG_PREFIX, " could not unset participant on cryptor, no cryptor was found for participant"),
+        properties: Object.assign(Object.assign({}, getLogContext()), {
+          trackId,
+          participantIdentity
+        })
+      }
+    });
   } else {
     cryptor.unsetParticipant();
-    workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " successfully unset cryptor"), Object.assign(Object.assign({}, getLogContext()), {
-      trackId,
-      participantIdentity
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_WORKER_LOG_PREFIX, " successfully unset cryptor"),
+        properties: Object.assign(Object.assign({}, getLogContext()), {
+          trackId,
+          participantIdentity
+        })
+      }
+    });
   }
 }
 function setEncryptionEnabled(enable, participantIdentity) {
-  workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " setting encryption enabled for all tracks of ").concat(participantIdentity), Object.assign(Object.assign({}, getLogContext()), {
-    enable,
-    participantIdentity
-  }));
+  postMessage({
+    kind: 'logging',
+    data: {
+      message: "".concat(E2EE_WORKER_LOG_PREFIX, " setting encryption enabled for all tracks of ").concat(participantIdentity),
+      properties: Object.assign(Object.assign({}, getLogContext()), {
+        enable,
+        participantIdentity
+      })
+    }
+  });
   encryptionEnabledMap.set(participantIdentity, enable);
 }
 function setSharedKey(key, index) {
@@ -2220,10 +2276,16 @@ function setupCryptorErrorEvents(cryptor) {
   });
 }
 function emitRatchetedKeys(ratchetResult, participantIdentity, keyIndex) {
-  workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " emitting ratchetKey"), Object.assign(Object.assign({}, getLogContext()), {
-    participantIdentity,
-    keyIndex
-  }));
+  postMessage({
+    kind: 'logging',
+    data: {
+      message: "".concat(E2EE_WORKER_LOG_PREFIX, " emitting ratchetKey"),
+      properties: Object.assign(Object.assign({}, getLogContext()), {
+        participantIdentity,
+        keyIndex
+      })
+    }
+  });
   const msg = {
     kind: "ratchetKey",
     data: {
@@ -2244,14 +2306,26 @@ function handleSifTrailer(trailer) {
 // @ts-ignore
 if (self.RTCTransformEvent) {
   // TODO: HERE
-  workerLogger.debug("".concat(E2EE_WORKER_LOG_PREFIX, " setup transform event"), getLogContext());
+  postMessage({
+    kind: 'logging',
+    data: {
+      message: "".concat(E2EE_WORKER_LOG_PREFIX, " setup transform event"),
+      properties: getLogContext()
+    }
+  });
   // @ts-ignore
   self.onrtctransform = event => {
     // @ts-ignore
     const transformer = event.transformer;
-    workerLogger.debug("".concat(E2EE_WORKER_LOG_PREFIX, " transformer info"), Object.assign(Object.assign({}, getLogContext()), {
-      transformer
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_WORKER_LOG_PREFIX, " transformer info"),
+        properties: Object.assign(Object.assign({}, getLogContext()), {
+          transformer
+        })
+      }
+    });
     const {
       kind,
       participantIdentity,
@@ -2259,9 +2333,15 @@ if (self.RTCTransformEvent) {
       codec
     } = transformer.options;
     const cryptor = getTrackCryptor(participantIdentity, trackId);
-    workerLogger.info("".concat(E2EE_WORKER_LOG_PREFIX, " setting up transform. Codec info"), Object.assign(Object.assign({}, getLogContext()), {
-      codec
-    }));
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: "".concat(E2EE_WORKER_LOG_PREFIX, " setting up transform. Codec info"),
+        properties: Object.assign(Object.assign({}, getLogContext()), {
+          codec
+        })
+      }
+    });
     cryptor.setupTransform(kind, transformer.readable, transformer.writable, trackId, false, codec);
   };
 }
