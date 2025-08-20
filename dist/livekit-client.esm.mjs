@@ -12780,8 +12780,7 @@ class E2EEManager extends eventsExports.EventEmitter {
         case 'ratchetKey':
           livekitLogger.info("".concat(E2EE_LOG_PREFIX, " received \"ratchetKey\" message from the worker. Emitting KeyProviderEvent.KeyRatcheted event"), Object.assign(Object.assign({}, this.logContext), {
             participantIdentity: data.participantIdentity,
-            keyIndex: data.keyIndex,
-            ratchetResult: data.ratchetResult
+            keyIndex: data.keyIndex
           }));
           this.keyProvider.emit(KeyProviderEvent.KeyRatcheted, data.ratchetResult, data.participantIdentity, data.keyIndex);
           break;
@@ -12831,9 +12830,7 @@ class E2EEManager extends eventsExports.EventEmitter {
         }
       };
       if (this.worker) {
-        livekitLogger.info("".concat(E2EE_LOG_PREFIX, " initializing worker"), Object.assign(Object.assign({}, this.logContext), {
-          worker: this.worker
-        }));
+        livekitLogger.info("".concat(E2EE_LOG_PREFIX, " initializing worker"), this.logContext);
         this.worker.onmessage = this.onWorkerMessage;
         this.worker.onerror = this.onWorkerError;
         this.worker.postMessage(msg);
@@ -13001,14 +12998,10 @@ class E2EEManager extends eventsExports.EventEmitter {
   }
   postSifTrailer(trailer) {
     if (!this.worker) {
-      livekitLogger.error("".concat(E2EE_LOG_PREFIX, " could not post SIF trailer, worker is missing"), Object.assign(Object.assign({}, this.logContext), {
-        trailer
-      }));
+      livekitLogger.error("".concat(E2EE_LOG_PREFIX, " could not post SIF trailer, worker is missing"), this.logContext);
       throw Error('could not post SIF trailer, worker is missing');
     }
-    livekitLogger.info("".concat(E2EE_LOG_PREFIX, " posting \"setSifTrailer\""), Object.assign(Object.assign({}, this.logContext), {
-      trailer
-    }));
+    livekitLogger.info("".concat(E2EE_LOG_PREFIX, " posting \"setSifTrailer\""), this.logContext);
     const msg = {
       kind: 'setSifTrailer',
       data: {
@@ -13019,13 +13012,11 @@ class E2EEManager extends eventsExports.EventEmitter {
   }
   setupE2EEReceiver(track, remoteId, trackInfo) {
     livekitLogger.info("".concat(E2EE_LOG_PREFIX, " started setting up e2ee receiver for ").concat(track.source), Object.assign(Object.assign({}, this.logContext), {
-      track,
       trackInfo,
       participantIdentity: remoteId
     }));
     if (!track.receiver) {
       livekitLogger.error("".concat(E2EE_LOG_PREFIX, " failed to setup e2ee receiver, track.receiver ir missing"), Object.assign(Object.assign({}, this.logContext), {
-        track,
         trackInfo,
         participantIdentity: remoteId
       }));
@@ -13033,7 +13024,6 @@ class E2EEManager extends eventsExports.EventEmitter {
     }
     if (!(trackInfo === null || trackInfo === void 0 ? void 0 : trackInfo.mimeType) || trackInfo.mimeType === '') {
       livekitLogger.error("".concat(E2EE_LOG_PREFIX, " failed to setup e2ee receiver, mimeType missing from trackInfo, cannot set up E2EE cryptor"), Object.assign(Object.assign({}, this.logContext), {
-        track,
         trackInfo,
         participantIdentity: remoteId
       }));
@@ -13042,15 +13032,10 @@ class E2EEManager extends eventsExports.EventEmitter {
     this.handleReceiver(track.receiver, track.mediaStreamID, remoteId, track.kind === 'video' ? mimeTypeToVideoCodecString(trackInfo.mimeType) : undefined);
   }
   setupE2EESender(track, sender) {
-    livekitLogger.info("".concat(E2EE_LOG_PREFIX, " started setting up e2ee sender for ").concat(track.source), Object.assign(Object.assign({}, this.logContext), {
-      track
-    }));
+    livekitLogger.info("".concat(E2EE_LOG_PREFIX, " started setting up e2ee sender for ").concat(track.source), this.logContext);
     if (!isLocalTrack(track) || !sender) {
-      livekitLogger.error("".concat(E2EE_LOG_PREFIX, " failed to setup e2ee sender"), Object.assign(Object.assign({}, this.logContext), {
-        track,
-        sender: sender
-      }));
-      if (!sender) livekitLogger.warn('early return because sender is not ready');
+      livekitLogger.error("".concat(E2EE_LOG_PREFIX, " failed to setup e2ee sender"), this.logContext);
+      if (!sender) livekitLogger.warn("".concat(E2EE_LOG_PREFIX, " early return because sender is not ready"), this.logContext);
       return;
     }
     this.handleSender(sender, track.mediaStreamID, undefined);
@@ -13147,16 +13132,14 @@ class E2EEManager extends eventsExports.EventEmitter {
         trackId,
         codec,
         hasE2eeFlag: E2EE_FLAG in sender,
-        hasWorker: !!this.worker,
-        sender
+        hasWorker: !!this.worker
       }));
       return;
     }
     if (!((_a = this.room) === null || _a === void 0 ? void 0 : _a.localParticipant.identity) || this.room.localParticipant.identity === '') {
       livekitLogger.error("".concat(E2EE_LOG_PREFIX, " local identity needs to be known in order to set up encrypted sender"), Object.assign(Object.assign({}, this.logContext), {
         trackId,
-        codec,
-        sender
+        codec
       }));
       throw TypeError('local identity needs to be known in order to set up encrypted sender');
     }
@@ -13170,8 +13153,7 @@ class E2EEManager extends eventsExports.EventEmitter {
       livekitLogger.info("".concat(E2EE_LOG_PREFIX, " setting up sender, isScriptTransformSupported === true"), Object.assign(Object.assign({}, this.logContext), {
         kind: 'encode',
         trackId,
-        codec,
-        sender
+        codec
       }));
       // @ts-ignore
       sender.transform = new RTCRtpScriptTransform(this.worker, options);
@@ -13192,7 +13174,6 @@ class E2EEManager extends eventsExports.EventEmitter {
       livekitLogger.info("".concat(E2EE_LOG_PREFIX, " initializing encoded streams, isScriptTransformSupported === false, posting \"encode\" message"), Object.assign(Object.assign({}, this.logContext), {
         trackId,
         codec,
-        sender,
         isReuse: false
       }));
       this.worker.postMessage(msg, [senderStreams.readable, senderStreams.writable]);

@@ -942,9 +942,7 @@ class FrameCryptor extends BaseFrameCryptor {
       kind: 'logging',
       data: {
         message: "".concat(E2EE_CRYPTOR_LOG_PREFIX, " setting sif trailer"),
-        properties: Object.assign(Object.assign({}, this.logContext), {
-          trailer
-        })
+        properties: this.logContext
       }
     });
     this.sifTrailer = trailer;
@@ -1738,8 +1736,7 @@ class ParticipantKeyHandler extends eventsExports.EventEmitter {
             properties: Object.assign(Object.assign({}, _this2.logContext), {
               keyIndex,
               usage: material.usages,
-              algorithm: material.algorithm,
-              ratchetSalt: _this2.keyProviderOptions.ratchetSalt
+              algorithm: material.algorithm
             })
           }
         });
@@ -2321,9 +2318,7 @@ if (self.RTCTransformEvent) {
       kind: 'logging',
       data: {
         message: "".concat(E2EE_WORKER_LOG_PREFIX, " transformer info"),
-        properties: Object.assign(Object.assign({}, getLogContext()), {
-          transformer
-        })
+        properties: getLogContext()
       }
     });
     const {

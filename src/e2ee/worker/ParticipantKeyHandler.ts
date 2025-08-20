@@ -270,7 +270,6 @@ export class ParticipantKeyHandler extends (EventEmitter as new () => TypedEvent
           keyIndex,
           usage: material.usages,
           algorithm: material.algorithm,
-          ratchetSalt: this.keyProviderOptions.ratchetSalt,
         },
       },
     });

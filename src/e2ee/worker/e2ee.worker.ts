@@ -579,10 +579,7 @@ if (self.RTCTransformEvent) {
       kind: 'logging',
       data: {
         message: `${E2EE_WORKER_LOG_PREFIX} transformer info`,
-        properties: {
-          ...getLogContext(),
-          transformer,
-        },
+        properties: getLogContext(),
       },
     });
 

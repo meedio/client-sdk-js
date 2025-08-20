@@ -102,10 +102,7 @@ export class E2EEManager
         },
       };
       if (this.worker) {
-        log.info(`${E2EE_LOG_PREFIX} initializing worker`, {
-          ...this.logContext,
-          worker: this.worker,
-        });
+        log.info(`${E2EE_LOG_PREFIX} initializing worker`, this.logContext);
         this.worker.onmessage = this.onWorkerMessage;
         this.worker.onerror = this.onWorkerError;
         this.worker.postMessage(msg);
@@ -230,7 +227,6 @@ export class E2EEManager
             ...this.logContext,
             participantIdentity: data.participantIdentity,
             keyIndex: data.keyIndex,
-            ratchetResult: data.ratchetResult,
           },
         );
         this.keyProvider.emit(
@@ -431,14 +427,14 @@ export class E2EEManager
 
   private postSifTrailer(trailer: Uint8Array) {
     if (!this.worker) {
-      log.error(`${E2EE_LOG_PREFIX} could not post SIF trailer, worker is missing`, {
-        ...this.logContext,
-        trailer,
-      });
+      log.error(
+        `${E2EE_LOG_PREFIX} could not post SIF trailer, worker is missing`,
+        this.logContext,
+      );
       throw Error('could not post SIF trailer, worker is missing');
     }
 
-    log.info(`${E2EE_LOG_PREFIX} posting "setSifTrailer"`, { ...this.logContext, trailer });
+    log.info(`${E2EE_LOG_PREFIX} posting "setSifTrailer"`, this.logContext);
 
     const msg: SifTrailerMessage = {
       kind: 'setSifTrailer',
@@ -452,7 +448,6 @@ export class E2EEManager
   private setupE2EEReceiver(track: RemoteTrack, remoteId: string, trackInfo?: TrackInfo) {
     log.info(`${E2EE_LOG_PREFIX} started setting up e2ee receiver for ${track.source}`, {
       ...this.logContext,
-      track,
       trackInfo,
       participantIdentity: remoteId,
     });
@@ -460,7 +455,6 @@ export class E2EEManager
     if (!track.receiver) {
       log.error(`${E2EE_LOG_PREFIX} failed to setup e2ee receiver, track.receiver ir missing`, {
         ...this.logContext,
-        track,
         trackInfo,
         participantIdentity: remoteId,
       });
@@ -469,7 +463,7 @@ export class E2EEManager
     if (!trackInfo?.mimeType || trackInfo.mimeType === '') {
       log.error(
         `${E2EE_LOG_PREFIX} failed to setup e2ee receiver, mimeType missing from trackInfo, cannot set up E2EE cryptor`,
-        { ...this.logContext, track, trackInfo, participantIdentity: remoteId },
+        { ...this.logContext, trackInfo, participantIdentity: remoteId },
       );
       throw new TypeError('MimeType missing from trackInfo, cannot set up E2EE cryptor');
     }
@@ -483,18 +477,15 @@ export class E2EEManager
   }
 
   private setupE2EESender(track: Track, sender: RTCRtpSender) {
-    log.info(`${E2EE_LOG_PREFIX} started setting up e2ee sender for ${track.source}`, {
-      ...this.logContext,
-      track,
-    });
+    log.info(
+      `${E2EE_LOG_PREFIX} started setting up e2ee sender for ${track.source}`,
+      this.logContext,
+    );
 
     if (!isLocalTrack(track) || !sender) {
-      log.error(`${E2EE_LOG_PREFIX} failed to setup e2ee sender`, {
-        ...this.logContext,
-        track,
-        sender: sender,
-      });
-      if (!sender) log.warn('early return because sender is not ready');
+      log.error(`${E2EE_LOG_PREFIX} failed to setup e2ee sender`, this.logContext);
+      if (!sender)
+        log.warn(`${E2EE_LOG_PREFIX} early return because sender is not ready`, this.logContext);
       return;
     }
     this.handleSender(sender, track.mediaStreamID, undefined);
@@ -614,7 +605,6 @@ export class E2EEManager
         codec,
         hasE2eeFlag: E2EE_FLAG in sender,
         hasWorker: !!this.worker,
-        sender,
       });
       return;
     }
@@ -622,7 +612,7 @@ export class E2EEManager
     if (!this.room?.localParticipant.identity || this.room.localParticipant.identity === '') {
       log.error(
         `${E2EE_LOG_PREFIX} local identity needs to be known in order to set up encrypted sender`,
-        { ...this.logContext, trackId, codec, sender },
+        { ...this.logContext, trackId, codec },
       );
       throw TypeError('local identity needs to be known in order to set up encrypted sender');
     }
@@ -640,7 +630,6 @@ export class E2EEManager
         kind: 'encode',
         trackId,
         codec,
-        sender,
       });
 
       // @ts-ignore
@@ -662,7 +651,7 @@ export class E2EEManager
 
       log.info(
         `${E2EE_LOG_PREFIX} initializing encoded streams, isScriptTransformSupported === false, posting "encode" message`,
-        { ...this.logContext, trackId, codec, sender, isReuse: false },
+        { ...this.logContext, trackId, codec, isReuse: false },
       );
       this.worker.postMessage(msg, [senderStreams.readable, senderStreams.writable]);
     }

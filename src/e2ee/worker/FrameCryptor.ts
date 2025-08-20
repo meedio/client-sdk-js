@@ -284,10 +284,7 @@ export class FrameCryptor extends BaseFrameCryptor {
       kind: 'logging',
       data: {
         message: `${E2EE_CRYPTOR_LOG_PREFIX} setting sif trailer`,
-        properties: {
-          ...this.logContext,
-          trailer,
-        },
+        properties: this.logContext,
       },
     });
     this.sifTrailer = trailer;
