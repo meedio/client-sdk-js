@@ -87,18 +87,31 @@ export interface InternalRoomOptions {
 
   webAudioMix: boolean | WebAudioSettings;
 
-  /**
-   * @experimental
-   */
+  // /**
+  //  * @deprecated Use `encryption` field instead.
+  //  */
   e2ee?: E2EEOptions;
 
+  /**
+   * @experimental
+   * Options for enabling end-to-end encryption.
+   */
+  encryption?: E2EEOptions;
+
   loggerName?: string;
+
+  /**
+   * @experimental
+   * only supported on LiveKit Cloud
+   * and LiveKit OSS >= 1.9.2
+   */
+  singlePeerConnection: boolean;
 }
 
 /**
  * Options for when creating a new room
  */
-export interface RoomOptions extends Partial<InternalRoomOptions> {}
+export interface RoomOptions extends Partial<Omit<InternalRoomOptions, 'encryption'>> {}
 
 /**
  * @internal

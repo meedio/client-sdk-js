@@ -1,4 +1,5 @@
-import type { DataStream_Chunk } from '@livekit/protocol';
+import type { DataStream_Chunk, Encryption_Type } from '@livekit/protocol';
+import type { Future } from './utils';
 
 export type SimulationOptions = {
   publish?: {
@@ -34,6 +35,24 @@ export interface StreamTextOptions {
   totalSize?: number;
   attributes?: Record<string, string>;
 }
+
+export type StreamBytesOptions = {
+  name?: string;
+  topic?: string;
+  attributes?: Record<string, string>;
+  destinationIdentities?: Array<string>;
+  streamId?: string;
+  mimeType?: string;
+  totalSize?: number;
+};
+
+export type SendFileOptions = Pick<
+  StreamBytesOptions,
+  'topic' | 'mimeType' | 'destinationIdentities'
+> & {
+  onProgress?: (progress: number) => void;
+  encryptionType?: Encryption_Type.NONE;
+};
 
 export type DataPublishOptions = {
   /**
@@ -105,6 +124,8 @@ export interface StreamController<T extends DataStream_Chunk> {
   controller: ReadableStreamDefaultController<T>;
   startTime: number;
   endTime?: number;
+  sendingParticipantIdentity: string;
+  outOfBandFailureRejectingFuture: Future<never>;
 }
 
 export interface BaseStreamInfo {
@@ -115,6 +136,7 @@ export interface BaseStreamInfo {
   /** total size in bytes for finite streams and undefined for streams of unknown size */
   size?: number;
   attributes?: Record<string, string>;
+  encryptionType: Encryption_Type;
 }
 export interface ByteStreamInfo extends BaseStreamInfo {
   name: string;

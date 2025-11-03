@@ -1,5 +1,149 @@
 # Change Log
 
+## 2.15.14
+
+### Patch Changes
+
+- Apply server supplied cache control settings for region url provider - [#1669](https://github.com/livekit/client-sdk-js/pull/1669) ([@lukasIO](https://github.com/lukasIO))
+
+- Only export types for TokenSource variants to try to push users to use the TokenSource.foo static constructors instead - [#1707](https://github.com/livekit/client-sdk-js/pull/1707) ([@1egoman](https://github.com/1egoman))
+
+- Add check to ensure track visibility update only happens when `adaptiveStream` is enabled - [#1712](https://github.com/livekit/client-sdk-js/pull/1712) ([@1egoman](https://github.com/1egoman))
+
+- Cache region settings per project - [#1709](https://github.com/livekit/client-sdk-js/pull/1709) ([@lukasIO](https://github.com/lukasIO))
+
+- Export decodeTokenPayload from package - [#1710](https://github.com/livekit/client-sdk-js/pull/1710) ([@1egoman](https://github.com/1egoman))
+
+## 2.15.13
+
+### Patch Changes
+
+- Disable ScriptTransform for Chromium based browsers - [#1703](https://github.com/livekit/client-sdk-js/pull/1703) ([@lukasIO](https://github.com/lukasIO))
+
+## 2.15.12
+
+### Patch Changes
+
+- Remove AbortSignal.any usage - [#1700](https://github.com/livekit/client-sdk-js/pull/1700) ([@lukasIO](https://github.com/lukasIO))
+
+## 2.15.11
+
+### Patch Changes
+
+- Fix abort race resulting in multiple code paths trying to close the ws connection - [#1695](https://github.com/livekit/client-sdk-js/pull/1695) ([@lukasIO](https://github.com/lukasIO))
+
+- fix the RPC comment and clam the timeout if the provided value is less than 8s - [#1694](https://github.com/livekit/client-sdk-js/pull/1694) ([@xianshijing-lk](https://github.com/xianshijing-lk))
+
+- Fix track mapping when single peer connectionis used - [#1696](https://github.com/livekit/client-sdk-js/pull/1696) ([@lukasIO](https://github.com/lukasIO))
+
+## 2.15.10
+
+### Patch Changes
+
+- Ensure leave requests can be sent before join response is received - [#1687](https://github.com/livekit/client-sdk-js/pull/1687) ([@lukasIO](https://github.com/lukasIO))
+
+- Increase RPC total timeout to 15s and connection timeout to 7s for better reliability under network latency. - [#1692](https://github.com/livekit/client-sdk-js/pull/1692) ([@xianshijing-lk](https://github.com/xianshijing-lk))
+
+- Add sdp to answer debug log - [#1689](https://github.com/livekit/client-sdk-js/pull/1689) ([@lukasIO](https://github.com/lukasIO))
+
+## 2.15.9
+
+### Patch Changes
+
+- Populate participant identity when receiving encrypted e2ee packets - [#1679](https://github.com/livekit/client-sdk-js/pull/1679) ([@lukasIO](https://github.com/lukasIO))
+
+- Export supportsAudioOutputSelection helper - [#1676](https://github.com/livekit/client-sdk-js/pull/1676) ([@lukasIO](https://github.com/lukasIO))
+
+- Fix bug in isResponseExpired token expiry checking logic - [#1683](https://github.com/livekit/client-sdk-js/pull/1683) ([@1egoman](https://github.com/1egoman))
+
+- Use WebSocketStream for sequential signal processing - [#1638](https://github.com/livekit/client-sdk-js/pull/1638) ([@lukasIO](https://github.com/lukasIO))
+
+- Support for data channel encryption on React-Native - [#1678](https://github.com/livekit/client-sdk-js/pull/1678) ([@davidliu](https://github.com/davidliu))
+
+- Single peer connection support - [#1682](https://github.com/livekit/client-sdk-js/pull/1682) ([@lukasIO](https://github.com/lukasIO))
+
+## 2.15.8
+
+### Patch Changes
+
+- Add preliminary support for data message decryption - [#1595](https://github.com/livekit/client-sdk-js/pull/1595) ([@lukasIO](https://github.com/lukasIO))
+
+- Add video autoplay attributes to PublishVideoCheck - [#1648](https://github.com/livekit/client-sdk-js/pull/1648) ([@Doomann](https://github.com/Doomann))
+
+- Ensure handleDisconnect is called also when already in Reconnecting state - [#1671](https://github.com/livekit/client-sdk-js/pull/1671) ([@lukasIO](https://github.com/lukasIO))
+
+- Fix TS 5.9 generic Uint8Array declaration when inferred - [#1668](https://github.com/livekit/client-sdk-js/pull/1668) ([@lukasIO](https://github.com/lukasIO))
+
+- Properly clean up event listeners in getNewAudioContext() - [#1660](https://github.com/livekit/client-sdk-js/pull/1660) ([@indexds](https://github.com/indexds))
+
+- Avoid uncaught errors related to send/disconnect races - [#1674](https://github.com/livekit/client-sdk-js/pull/1674) ([@bryfox](https://github.com/bryfox))
+
+- Register online listener in engine's join - [#1658](https://github.com/livekit/client-sdk-js/pull/1658) ([@lukasIO](https://github.com/lukasIO))
+
+- add TokenSource token fetching abstraction - [#1645](https://github.com/livekit/client-sdk-js/pull/1645) ([@1egoman](https://github.com/1egoman))
+
+## 2.15.7
+
+### Patch Changes
+
+- Ensure permission event is only emitted once for local participant - [#1643](https://github.com/livekit/client-sdk-js/pull/1643) ([@lukasIO](https://github.com/lukasIO))
+
+- internal typing fix - add missing async to postAction - [#1644](https://github.com/livekit/client-sdk-js/pull/1644) ([@1egoman](https://github.com/1egoman))
+
+- Ensure mid is always interpreted as string - [#1641](https://github.com/livekit/client-sdk-js/pull/1641) ([@lukasIO](https://github.com/lukasIO))
+
+## 2.15.6
+
+### Patch Changes
+
+- Query audio track with all constraints present - [#1624](https://github.com/livekit/client-sdk-js/pull/1624) ([@lukasIO](https://github.com/lukasIO))
+
+- Ensure RemoteVideoTracks without any attached elements are stopped by adaptiveStream - [#1625](https://github.com/livekit/client-sdk-js/pull/1625) ([@lukasIO](https://github.com/lukasIO))
+
+- Disable av1 for firefox - [#1631](https://github.com/livekit/client-sdk-js/pull/1631) ([@cnderrauber](https://github.com/cnderrauber))
+
+- Use SIF payload hashes to ensure integrity - [#1629](https://github.com/livekit/client-sdk-js/pull/1629) ([@lukasIO](https://github.com/lukasIO))
+
+- fix(e2ee): h264 publishing with e2ee enabled - [#1632](https://github.com/livekit/client-sdk-js/pull/1632) ([@lukasIO](https://github.com/lukasIO))
+
+- Check for encrypted track if room unencrypted, and if so, emit an event - [#1627](https://github.com/livekit/client-sdk-js/pull/1627) ([@1egoman](https://github.com/1egoman))
+
+## 2.15.5
+
+### Patch Changes
+
+- feat: add ability to include an AbortSignal when reading from a datastream - [#1611](https://github.com/livekit/client-sdk-js/pull/1611) ([@1egoman](https://github.com/1egoman))
+
+- Fix error when `unwrapConstraint` receives an empty deviceId when creating local tracks - [#1594](https://github.com/livekit/client-sdk-js/pull/1594) ([@mpnri](https://github.com/mpnri))
+
+- feat(e2ee): add h265 as supported codec for encryption - [#1618](https://github.com/livekit/client-sdk-js/pull/1618) ([@lukasIO](https://github.com/lukasIO))
+
+- Handle numerous small data stream errors / state inconsistiencies with throwing explicit errors - [#1613](https://github.com/livekit/client-sdk-js/pull/1613) ([@1egoman](https://github.com/1egoman))
+
+- lock all APIs that change underlying track with the same lock - [#1620](https://github.com/livekit/client-sdk-js/pull/1620) ([@lukasIO](https://github.com/lukasIO))
+
+## 2.15.4
+
+### Patch Changes
+
+- Fix iOS local track recorder mimetype for preconnect buffer - [#1609](https://github.com/livekit/client-sdk-js/pull/1609) ([@lukasIO](https://github.com/lukasIO))
+
+- Add support for react-native preconnect audio - [#1598](https://github.com/livekit/client-sdk-js/pull/1598) ([@davidliu](https://github.com/davidliu))
+
+- Clear LocalParticipant futures at start of disconnect, not at end - [#1604](https://github.com/livekit/client-sdk-js/pull/1604) ([@1egoman](https://github.com/1egoman))
+
+- fix: ensure audio output switching is disabled for safari based browsers - [#1602](https://github.com/livekit/client-sdk-js/pull/1602) ([@lukasIO](https://github.com/lukasIO))
+
+- skip errant signal layer leave message when already disconnected - [#1601](https://github.com/livekit/client-sdk-js/pull/1601) ([@1egoman](https://github.com/1egoman))
+
+## 2.15.3
+
+### Patch Changes
+
+- fix: retry processor playback on abort error - [#1592](https://github.com/livekit/client-sdk-js/pull/1592) ([@lukasIO](https://github.com/lukasIO))
+
+- fix: correct handling of signal connect future - [#1600](https://github.com/livekit/client-sdk-js/pull/1600) ([@lukasIO](https://github.com/lukasIO))
+
 ## 2.15.2
 
 ### Patch Changes

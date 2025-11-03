@@ -114,6 +114,43 @@ export interface LoggingMessage extends BaseMessage {
   kind: 'logging';
   data: { message: string; properties: Record<string, any> };
 }
+export interface DecryptDataRequestMessage extends BaseMessage {
+  kind: 'decryptDataRequest';
+  data: {
+    uuid: string;
+    payload: Uint8Array;
+    iv: Uint8Array;
+    participantIdentity: string;
+    keyIndex: number;
+  };
+}
+
+export interface DecryptDataResponseMessage extends BaseMessage {
+  kind: 'decryptDataResponse';
+  data: {
+    uuid: string;
+    payload: Uint8Array;
+  };
+}
+
+export interface EncryptDataRequestMessage extends BaseMessage {
+  kind: 'encryptDataRequest';
+  data: {
+    uuid: string;
+    payload: Uint8Array;
+    participantIdentity: string;
+  };
+}
+
+export interface EncryptDataResponseMessage extends BaseMessage {
+  kind: 'encryptDataResponse';
+  data: {
+    uuid: string;
+    payload: Uint8Array;
+    iv: Uint8Array;
+    keyIndex: number;
+  };
+}
 
 export type E2EEWorkerMessage =
   | InitMessage
@@ -128,6 +165,10 @@ export type E2EEWorkerMessage =
   | RatchetMessage
   | SifTrailerMessage
   | InitAck
+  | DecryptDataRequestMessage
+  | DecryptDataResponseMessage
+  | EncryptDataRequestMessage
+  | EncryptDataResponseMessage
   | LoggingMessage;
 
 export type KeySet = { material: CryptoKey; encryptionKey: CryptoKey };
@@ -157,6 +198,7 @@ export type E2EEManagerOptions = {
   keyProvider: BaseKeyProvider;
   worker: Worker;
 };
+
 export type E2EEOptions =
   | E2EEManagerOptions
   | {

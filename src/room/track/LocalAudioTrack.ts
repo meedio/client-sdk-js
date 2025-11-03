@@ -169,7 +169,7 @@ export default class LocalAudioTrack extends LocalTrack<Track.Kind.Audio> {
   };
 
   async setProcessor(processor: TrackProcessor<Track.Kind.Audio, AudioProcessorOptions>) {
-    const unlock = await this.processorLock.lock();
+    const unlock = await this.trackChangeLock.lock();
     try {
       if (!isReactNative() && !this.audioContext) {
         throw Error(
@@ -177,7 +177,7 @@ export default class LocalAudioTrack extends LocalTrack<Track.Kind.Audio> {
         );
       }
       if (this.processor) {
-        await this.stopProcessor();
+        await this.internalStopProcessor();
       }
 
       const processorOptions = {
@@ -244,7 +244,7 @@ export default class LocalAudioTrack extends LocalTrack<Track.Kind.Audio> {
     const trackIsSilent = await detectSilence(this);
     if (trackIsSilent) {
       if (!this.isMuted) {
-        this.log.warn('silence detected on local audio track', this.logContext);
+        this.log.debug('silence detected on local audio track', this.logContext);
       }
       this.emit(TrackEvent.AudioSilenceDetected);
     }

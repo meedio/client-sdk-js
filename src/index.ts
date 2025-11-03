@@ -1,5 +1,11 @@
 import { Mutex } from '@livekit/mutex';
-import { DataPacket_Kind, DisconnectReason, SubscriptionError, TrackType } from '@livekit/protocol';
+import {
+  DataPacket_Kind,
+  DisconnectReason,
+  Encryption_Type,
+  SubscriptionError,
+  TrackType,
+} from '@livekit/protocol';
 import { LogLevel, LoggerNames, getLogger, setLogExtension, setLogLevel } from './logger';
 import DefaultReconnectPolicy from './room/DefaultReconnectPolicy';
 import type { ReconnectContext, ReconnectPolicy } from './room/ReconnectPolicy';
@@ -33,15 +39,18 @@ import {
   createAudioAnalyser,
   getEmptyAudioStreamTrack,
   getEmptyVideoStreamTrack,
+  isAudioCodec,
   isAudioTrack,
   isBrowserSupported,
   isLocalParticipant,
   isLocalTrack,
   isRemoteParticipant,
   isRemoteTrack,
+  isVideoCodec,
   isVideoTrack,
   supportsAV1,
   supportsAdaptiveStream,
+  supportsAudioOutputSelection,
   supportsDynacast,
   supportsVP9,
 } from './room/utils';
@@ -58,12 +67,14 @@ export * from './room/errors';
 export * from './room/events';
 export * from './room/track/Track';
 export * from './room/track/create';
+export * from './room/token-source/TokenSource';
+export * from './room/token-source/types';
 export { facingModeFromDeviceLabel, facingModeFromLocalTrack } from './room/track/facingMode';
 export * from './room/track/options';
 export * from './room/track/processor/types';
 export * from './room/track/types';
-export type * from './room/StreamReader';
-export type * from './room/StreamWriter';
+export type * from './room/data-stream/incoming/StreamReader';
+export type * from './room/data-stream/outgoing/StreamWriter';
 export type {
   DataPublishOptions,
   SimulationScenario,
@@ -79,6 +90,7 @@ export {
   ConnectionState,
   CriticalTimers,
   DataPacket_Kind,
+  Encryption_Type,
   DefaultReconnectPolicy,
   DisconnectReason,
   LocalAudioTrack,
@@ -110,12 +122,15 @@ export {
   setLogLevel,
   supportsAV1,
   supportsAdaptiveStream,
+  supportsAudioOutputSelection,
   supportsDynacast,
   supportsVP9,
   Mutex,
+  isAudioCodec,
   isAudioTrack,
   isLocalTrack,
   isRemoteTrack,
+  isVideoCodec,
   isVideoTrack,
   isLocalParticipant,
   isRemoteParticipant,

@@ -1,3 +1,4 @@
+import { type DataPacket, EncryptedPacketPayload } from '@livekit/protocol';
 import { ENCRYPTION_ALGORITHM } from './constants';
 
 export function isE2EESupported() {
@@ -182,3 +183,18 @@ export const generateLogSessionId = () => {
   const random = Math.random().toString(36).slice(2, 10);
   return `${now}-${random}`;
 };
+
+export function asEncryptablePacket(packet: DataPacket): EncryptedPacketPayload | undefined {
+  if (
+    packet.value?.case !== 'sipDtmf' &&
+    packet.value?.case !== 'metrics' &&
+    packet.value?.case !== 'speaker' &&
+    packet.value?.case !== 'transcription' &&
+    packet.value?.case !== 'encryptedPacket'
+  ) {
+    return new EncryptedPacketPayload({
+      value: packet.value,
+    });
+  }
+  return undefined;
+}

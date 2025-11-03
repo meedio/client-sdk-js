@@ -11,15 +11,19 @@ import type RemoteTrack from '../room/track/RemoteTrack';
 import type { Track } from '../room/track/Track';
 import type { VideoCodec } from '../room/track/options';
 import { mimeTypeToVideoCodecString } from '../room/track/utils';
-import { isLocalTrack } from '../room/utils';
+import { Future, isChromiumBased, isLocalTrack, isSafariBased, isVideoTrack } from '../room/utils';
 import type { BaseKeyProvider } from './KeyProvider';
 import { E2EE_FLAG, E2EE_LOG_PREFIX } from './constants';
 import { type E2EEManagerCallbacks, EncryptionEvent, KeyProviderEvent } from './events';
 import type {
+  DecryptDataRequestMessage,
+  DecryptDataResponseMessage,
   E2EEManagerOptions,
   E2EEWorkerMessage,
   EnableMessage,
   EncodeMessage,
+  EncryptDataRequestMessage,
+  EncryptDataResponseMessage,
   InitMessage,
   KeyInfo,
   RTPVideoMapMessage,
@@ -35,8 +39,17 @@ import { generateLogSessionId, isE2EESupported, isScriptTransformSupported } fro
 export interface BaseE2EEManager {
   setup(room: Room): void;
   setupEngine(engine: RTCEngine): void;
+  isEnabled: boolean;
+  isDataChannelEncryptionEnabled: boolean;
   setParticipantCryptorEnabled(enabled: boolean, participantIdentity: string): void;
   setSifTrailer(trailer: Uint8Array): void;
+  encryptData(data: Uint8Array): Promise<EncryptDataResponseMessage['data']>;
+  handleEncryptedData(
+    payload: Uint8Array,
+    iv: Uint8Array,
+    participantIdentity: string,
+    keyIndex: number,
+  ): Promise<DecryptDataResponseMessage['data']>;
   on<E extends keyof E2EEManagerCallbacks>(event: E, listener: E2EEManagerCallbacks[E]): this;
 }
 
@@ -57,13 +70,20 @@ export class E2EEManager
 
   private localParticipantLogSessionId: string;
 
-  constructor(options: E2EEManagerOptions) {
+  private decryptDataRequests: Map<string, Future<DecryptDataResponseMessage['data']>> = new Map();
+
+  private encryptDataRequests: Map<string, Future<EncryptDataResponseMessage['data']>> = new Map();
+
+  private dataChannelEncryptionEnabled: boolean;
+
+  constructor(options: E2EEManagerOptions, dcEncryptionEnabled: boolean) {
     super();
     this.keyProvider = options.keyProvider;
     this.worker = options.worker;
     this.encryptionEnabled = false;
     this.localParticipantLogSessionId = generateLogSessionId();
     log.info(`${E2EE_LOG_PREFIX} Your livekit logSessionId: ${this.localParticipantLogSessionId}`);
+    this.dataChannelEncryptionEnabled = dcEncryptionEnabled;
   }
 
   private get logContext() {
@@ -71,6 +91,14 @@ export class E2EEManager
       localParticipant: this.room?.localParticipant.identity,
       logSessionId: this.localParticipantLogSessionId,
     };
+  }
+
+  get isEnabled(): boolean {
+    return this.encryptionEnabled;
+  }
+
+  get isDataChannelEncryptionEnabled(): boolean {
+    return this.isEnabled && this.dataChannelEncryptionEnabled;
   }
 
   /**
@@ -236,8 +264,21 @@ export class E2EEManager
           data.keyIndex,
         );
         break;
+
       case 'logging':
         log.info(data.message, data.properties);
+        break;
+      case 'decryptDataResponse':
+        const decryptFuture = this.decryptDataRequests.get(data.uuid);
+        if (decryptFuture?.resolve) {
+          decryptFuture.resolve(data);
+        }
+        break;
+      case 'encryptDataResponse':
+        const encryptFuture = this.encryptDataRequests.get(data.uuid);
+        if (encryptFuture?.resolve) {
+          encryptFuture.resolve(data as EncryptDataResponseMessage['data']);
+        }
         break;
       default:
         break;
@@ -318,11 +359,79 @@ export class E2EEManager
       this.setupE2EESender(track, sender);
     });
 
+    room.localParticipant.on(ParticipantEvent.LocalTrackPublished, (publication) => {
+      // Safari doesn't support retrieving payload information on RTCEncodedVideoFrame, so we need to update the codec manually once we have the trackInfo from the server
+      if (!isVideoTrack(publication.track) || !isSafariBased()) {
+        return;
+      }
+      const msg: UpdateCodecMessage = {
+        kind: 'updateCodec',
+        data: {
+          trackId: publication.track!.mediaStreamID,
+          codec: mimeTypeToVideoCodecString(publication.trackInfo!.codecs[0].mimeType),
+          participantIdentity: this.room!.localParticipant.identity,
+        },
+      };
+
+      this.worker.postMessage(msg);
+    });
+
     keyProvider
       .on(KeyProviderEvent.SetKey, (keyInfo) => this.postKey(keyInfo))
       .on(KeyProviderEvent.RatchetRequest, (participantId, keyIndex) =>
         this.postRatchetRequest(participantId, keyIndex),
       );
+  }
+
+  async encryptData(data: Uint8Array): Promise<EncryptDataResponseMessage['data']> {
+    if (!this.worker) {
+      throw Error('could not encrypt data, worker is missing');
+    }
+    const uuid = crypto.randomUUID();
+    const msg: EncryptDataRequestMessage = {
+      kind: 'encryptDataRequest',
+      data: {
+        uuid,
+        payload: data,
+        participantIdentity: this.room!.localParticipant.identity,
+      },
+    };
+    const future = new Future<EncryptDataResponseMessage['data']>();
+    future.onFinally = () => {
+      this.encryptDataRequests.delete(uuid);
+    };
+    this.encryptDataRequests.set(uuid, future);
+    this.worker.postMessage(msg);
+    return future!.promise!;
+  }
+
+  handleEncryptedData(
+    payload: Uint8Array,
+    iv: Uint8Array,
+    participantIdentity: string,
+    keyIndex: number,
+  ) {
+    if (!this.worker) {
+      throw Error('could not handle encrypted data, worker is missing');
+    }
+    const uuid = crypto.randomUUID();
+    const msg: DecryptDataRequestMessage = {
+      kind: 'decryptDataRequest',
+      data: {
+        uuid,
+        payload,
+        iv,
+        participantIdentity,
+        keyIndex,
+      },
+    };
+    const future = new Future<DecryptDataResponseMessage['data']>();
+    future.onFinally = () => {
+      this.decryptDataRequests.delete(uuid);
+    };
+    this.decryptDataRequests.set(uuid, future);
+    this.worker.postMessage(msg);
+    return future.promise;
   }
 
   private postRatchetRequest(participantIdentity?: string, keyIndex?: number) {
@@ -511,7 +620,12 @@ export class E2EEManager
       return;
     }
 
-    if (isScriptTransformSupported()) {
+    if (
+      isScriptTransformSupported() &&
+      // Chrome occasionally throws an `InvalidState` error when using script transforms directly after introducing this API in 141.
+      // Disabling it for Chrome based browsers until the API has stabilized
+      !isChromiumBased()
+    ) {
       const options: ScriptTransformOptions = {
         kind: 'decode',
         participantIdentity,
@@ -617,7 +731,13 @@ export class E2EEManager
       throw TypeError('local identity needs to be known in order to set up encrypted sender');
     }
 
-    if (isScriptTransformSupported()) {
+    if (
+      isScriptTransformSupported() &&
+      // Chrome occasionally throws an `InvalidState` error when using script transforms directly after introducing this API in 141.
+      // Disabling it for Chrome based browsers until the API has stabilized
+      !isChromiumBased()
+    ) {
+      log.info('initialize script transform');
       const options = {
         kind: 'encode',
         participantIdentity: this.room.localParticipant.identity,
