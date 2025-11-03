@@ -445,7 +445,13 @@ export class FrameCryptor extends BaseFrameCryptor {
         encodedFrame.data.byteLength - this.sifTrailer.byteLength,
       );
       if (await identifySifPayload(encodedFrame.data)) {
-        // workerLogger.debug('enqueue SIF', this.logContext); //TODO: spam of this, so unsure if useful
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_CRYPTOR_LOG_PREFIX} enqueue SIF`, //TODO: remove if spammed
+            properties: this.logContext,
+          },
+        });
         return controller.enqueue(encodedFrame);
       } else {
         postMessage({
