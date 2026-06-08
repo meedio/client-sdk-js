@@ -13,7 +13,7 @@ import type { VideoCodec } from '../room/track/options';
 import { mimeTypeToVideoCodecString } from '../room/track/utils';
 import { Future, isChromiumBased, isLocalTrack, isSafariBased, isVideoTrack } from '../room/utils';
 import type { BaseKeyProvider } from './KeyProvider';
-import { E2EE_FLAG } from './constants';
+import { E2EE_FLAG, E2EE_LOG_PREFIX } from './constants';
 import { type E2EEManagerCallbacks, EncryptionEvent, KeyProviderEvent } from './events';
 import type {
   DecryptDataRequestMessage,
@@ -34,7 +34,7 @@ import type {
   SifTrailerMessage,
   UpdateCodecMessage,
 } from './types';
-import { isE2EESupported, isScriptTransformSupported } from './utils';
+import { generateLogSessionId, isE2EESupported, isScriptTransformSupported } from './utils';
 
 export interface BaseE2EEManager {
   setup(room: Room): void;
@@ -68,6 +68,8 @@ export class E2EEManager
 
   private keyProvider: BaseKeyProvider;
 
+  private localParticipantLogSessionId: string;
+
   private decryptDataRequests: Map<string, Future<DecryptDataResponseMessage['data']>> = new Map();
 
   private encryptDataRequests: Map<string, Future<EncryptDataResponseMessage['data']>> = new Map();
@@ -79,7 +81,16 @@ export class E2EEManager
     this.keyProvider = options.keyProvider;
     this.worker = options.worker;
     this.encryptionEnabled = false;
+    this.localParticipantLogSessionId = generateLogSessionId();
+    log.info(`${E2EE_LOG_PREFIX} Your livekit logSessionId: ${this.localParticipantLogSessionId}`);
     this.dataChannelEncryptionEnabled = dcEncryptionEnabled;
+  }
+
+  private get logContext() {
+    return {
+      localParticipant: this.room?.localParticipant.identity,
+      logSessionId: this.localParticipantLogSessionId,
+    };
   }
 
   get isEnabled(): boolean {
@@ -95,11 +106,17 @@ export class E2EEManager
    */
   setup(room: Room) {
     if (!isE2EESupported()) {
+      log.error(
+        `${E2EE_LOG_PREFIX} tried to setup end-to-end encryption on an unsupported browser.`,
+      );
+
       throw new DeviceUnsupportedError(
         'tried to setup end-to-end encryption on an unsupported browser',
       );
     }
-    log.info('setting up e2ee');
+
+    log.info(`${E2EE_LOG_PREFIX} setting up e2ee`, this.logContext);
+
     if (room !== this.room) {
       this.room = room;
       this.setupEventListeners(room, this.keyProvider);
@@ -109,14 +126,19 @@ export class E2EEManager
         data: {
           keyProviderOptions: this.keyProvider.getOptions(),
           loglevel: workerLogger.getLevel() as LogLevel,
+          logSessionId: this.localParticipantLogSessionId,
         },
       };
       if (this.worker) {
-        log.info(`initializing worker`, { worker: this.worker });
+        log.info(`${E2EE_LOG_PREFIX} initializing worker`, this.logContext);
         this.worker.onmessage = this.onWorkerMessage;
         this.worker.onerror = this.onWorkerError;
         this.worker.postMessage(msg);
+      } else {
+        log.error(`${E2EE_LOG_PREFIX} worker is missing in e2ee setup`, this.logContext);
       }
+    } else {
+      log.error(`${E2EE_LOG_PREFIX} skipping e2ee setup. Room already exists`, this.logContext);
     }
   }
 
@@ -124,7 +146,10 @@ export class E2EEManager
    * @internal
    */
   setParticipantCryptorEnabled(enabled: boolean, participantIdentity: string) {
-    log.debug(`set e2ee to ${enabled} for participant ${participantIdentity}`);
+    log.info(
+      `${E2EE_LOG_PREFIX} posting to enable e2ee - ${enabled} for participant ${participantIdentity}`,
+      { ...this.logContext, participantIdentity },
+    );
     this.postEnable(enabled, participantIdentity);
   }
 
@@ -133,7 +158,10 @@ export class E2EEManager
    */
   setSifTrailer(trailer: Uint8Array) {
     if (!trailer || trailer.length === 0) {
-      log.warn("ignoring server sent trailer as it's empty");
+      log.warn(`${E2EE_LOG_PREFIX} ignoring server sent trailer as it's empty`, {
+        ...this.logContext,
+        localParticipantIdentity: this.room?.localParticipant.identity,
+      });
     } else {
       this.postSifTrailer(trailer);
     }
@@ -143,11 +171,21 @@ export class E2EEManager
     const { kind, data } = ev.data;
     switch (kind) {
       case 'error':
+        log.error(`${E2EE_LOG_PREFIX} received an error message from the worker`, {
+          ...this.logContext,
+          errorMessage: data.error.message,
+        });
         log.error(data.error.message);
         this.emit(EncryptionEvent.EncryptionError, data.error);
         break;
       case 'initAck':
+        log.info(`${E2EE_LOG_PREFIX} received "initAck" message from the worker`, this.logContext);
         if (data.enabled) {
+          log.info(
+            `${E2EE_LOG_PREFIX} will post ${this.keyProvider.getKeys().length} initial keys`,
+            { ...this.logContext, e2eeEnabled: data.enabled },
+          );
+
           this.keyProvider.getKeys().forEach((keyInfo) => {
             this.postKey(keyInfo);
           });
@@ -155,7 +193,17 @@ export class E2EEManager
         break;
 
       case 'enable':
+        log.info(`${E2EE_LOG_PREFIX} received "enable" message from the worker`, {
+          ...this.logContext,
+          e2eeEnabled: data.enabled,
+          participantIdentity: data.participantIdentity,
+        });
+
         if (data.enabled) {
+          log.info(`${E2EE_LOG_PREFIX} will post ${this.keyProvider.getKeys().length} keys`, {
+            ...this.logContext,
+            participantIdentity: data.participantIdentity,
+          });
           this.keyProvider.getKeys().forEach((keyInfo) => {
             this.postKey(keyInfo);
           });
@@ -164,6 +212,11 @@ export class E2EEManager
           this.encryptionEnabled !== data.enabled &&
           data.participantIdentity === this.room?.localParticipant.identity
         ) {
+          log.info(
+            `${E2EE_LOG_PREFIX} participant encryption status changed for the local participant, emitting event`,
+            { ...this.logContext, e2eeEnabled: data.enabled },
+          );
+
           this.emit(
             EncryptionEvent.ParticipantEncryptionStatusChanged,
             data.enabled,
@@ -173,14 +226,37 @@ export class E2EEManager
         } else if (data.participantIdentity) {
           const participant = this.room?.getParticipantByIdentity(data.participantIdentity);
           if (!participant) {
+            log.error(`${E2EE_LOG_PREFIX} couldn't set encryption status, participant not found`, {
+              ...this.logContext,
+              e2eeEnabled: data.enabled,
+              participantIdentity: data.participantIdentity,
+            });
             throw TypeError(
               `couldn't set encryption status, participant not found${data.participantIdentity}`,
             );
           }
+
+          log.info(
+            `${E2EE_LOG_PREFIX} participant encryption status changed for a participant, emitting event`,
+            {
+              ...this.logContext,
+              e2eeEnabled: data.enabled,
+              participantIdentity: data.participantIdentity,
+            },
+          );
+
           this.emit(EncryptionEvent.ParticipantEncryptionStatusChanged, data.enabled, participant);
         }
         break;
       case 'ratchetKey':
+        log.info(
+          `${E2EE_LOG_PREFIX} received "ratchetKey" message from the worker. Emitting KeyProviderEvent.KeyRatcheted event`,
+          {
+            ...this.logContext,
+            participantIdentity: data.participantIdentity,
+            keyIndex: data.keyIndex,
+          },
+        );
         this.keyProvider.emit(
           KeyProviderEvent.KeyRatcheted,
           data.ratchetResult,
@@ -189,6 +265,9 @@ export class E2EEManager
         );
         break;
 
+      case 'logging':
+        log.info(data.message, data.properties);
+        break;
       case 'decryptDataResponse':
         const decryptFuture = this.decryptDataRequests.get(data.uuid);
         if (decryptFuture?.resolve) {
@@ -207,7 +286,11 @@ export class E2EEManager
   };
 
   private onWorkerError = (ev: ErrorEvent) => {
-    log.error('e2ee worker encountered an error:', { error: ev.error });
+    log.error(`${E2EE_LOG_PREFIX} e2ee worker encountered an error`, {
+      ...this.logContext,
+      error: ev,
+    });
+
     this.emit(EncryptionEvent.EncryptionError, ev.error);
   };
 
@@ -252,8 +335,17 @@ export class E2EEManager
       })
       .on(RoomEvent.SignalConnected, () => {
         if (!this.room) {
+          log.error(
+            `${E2EE_LOG_PREFIX} room is missing, expected room to be present on signal connect`,
+            this.logContext,
+          );
           throw new TypeError(`expected room to be present on signal connect`);
         }
+
+        log.info(
+          `${E2EE_LOG_PREFIX} signal connected event received, will post ${keyProvider.getKeys().length} keys`,
+          this.logContext,
+        );
         keyProvider.getKeys().forEach((keyInfo) => {
           this.postKey(keyInfo);
         });
@@ -344,8 +436,20 @@ export class E2EEManager
 
   private postRatchetRequest(participantIdentity?: string, keyIndex?: number) {
     if (!this.worker) {
+      log.error(`${E2EE_LOG_PREFIX} could not ratchet key, worker is missing`, {
+        ...this.logContext,
+        participantIdentity,
+        keyIndex,
+      });
       throw Error('could not ratchet key, worker is missing');
     }
+
+    log.info(`${E2EE_LOG_PREFIX} posting "ratchetRequest"`, {
+      ...this.logContext,
+      participantIdentity,
+      keyIndex,
+    });
+
     const msg: RatchetRequestMessage = {
       kind: 'ratchetRequest',
       data: {
@@ -358,8 +462,20 @@ export class E2EEManager
 
   private postKey({ key, participantIdentity, keyIndex }: KeyInfo) {
     if (!this.worker) {
+      log.error(`${E2EE_LOG_PREFIX} could not post key, worker is missing`, {
+        ...this.logContext,
+        participantIdentity,
+        keyIndex,
+      });
       throw Error('could not set key, worker is missing');
     }
+
+    log.info(`${E2EE_LOG_PREFIX} posting "setKey"`, {
+      ...this.logContext,
+      participantIdentity,
+      keyIndex,
+    });
+
     const msg: SetKeyMessage = {
       kind: 'setKey',
       data: {
@@ -374,6 +490,7 @@ export class E2EEManager
 
   private postEnable(enabled: boolean, participantIdentity: string) {
     if (this.worker) {
+      log.info(`${E2EE_LOG_PREFIX} posting "enable"`, { ...this.logContext, participantIdentity });
       const enableMsg: EnableMessage = {
         kind: 'enable',
         data: {
@@ -383,17 +500,30 @@ export class E2EEManager
       };
       this.worker.postMessage(enableMsg);
     } else {
+      log.error(`${E2EE_LOG_PREFIX} could not post "enable", worker is not ready or missing`, {
+        ...this.logContext,
+        participantIdentity,
+      });
       throw new ReferenceError('failed to enable e2ee, worker is not ready');
     }
   }
 
   private postRTPMap(map: Map<number, VideoCodec>) {
     if (!this.worker) {
+      log.error(`${E2EE_LOG_PREFIX} could not post rtp map, worker is missing.`, this.logContext);
+
       throw TypeError('could not post rtp map, worker is missing');
     }
     if (!this.room?.localParticipant.identity) {
+      log.error(
+        `${E2EE_LOG_PREFIX} could not post rtp map, local participant identity is missing`,
+        this.logContext,
+      );
       throw TypeError('could not post rtp map, local participant identity is missing');
     }
+
+    log.info(`${E2EE_LOG_PREFIX} posting "setRTPMap"`, this.logContext);
+
     const msg: RTPVideoMapMessage = {
       kind: 'setRTPMap',
       data: {
@@ -406,8 +536,15 @@ export class E2EEManager
 
   private postSifTrailer(trailer: Uint8Array) {
     if (!this.worker) {
+      log.error(
+        `${E2EE_LOG_PREFIX} could not post SIF trailer, worker is missing`,
+        this.logContext,
+      );
       throw Error('could not post SIF trailer, worker is missing');
     }
+
+    log.info(`${E2EE_LOG_PREFIX} posting "setSifTrailer"`, this.logContext);
+
     const msg: SifTrailerMessage = {
       kind: 'setSifTrailer',
       data: {
@@ -418,12 +555,28 @@ export class E2EEManager
   }
 
   private setupE2EEReceiver(track: RemoteTrack, remoteId: string, trackInfo?: TrackInfo) {
+    log.info(`${E2EE_LOG_PREFIX} started setting up e2ee receiver for ${track.source}`, {
+      ...this.logContext,
+      trackInfo,
+      participantIdentity: remoteId,
+    });
+
     if (!track.receiver) {
+      log.error(`${E2EE_LOG_PREFIX} failed to setup e2ee receiver, track.receiver ir missing`, {
+        ...this.logContext,
+        trackInfo,
+        participantIdentity: remoteId,
+      });
       return;
     }
     if (!trackInfo?.mimeType || trackInfo.mimeType === '') {
+      log.error(
+        `${E2EE_LOG_PREFIX} failed to setup e2ee receiver, mimeType missing from trackInfo, cannot set up E2EE cryptor`,
+        { ...this.logContext, trackInfo, participantIdentity: remoteId },
+      );
       throw new TypeError('MimeType missing from trackInfo, cannot set up E2EE cryptor');
     }
+
     this.handleReceiver(
       track.receiver,
       track.mediaStreamID,
@@ -433,8 +586,15 @@ export class E2EEManager
   }
 
   private setupE2EESender(track: Track, sender: RTCRtpSender) {
+    log.info(
+      `${E2EE_LOG_PREFIX} started setting up e2ee sender for ${track.source}`,
+      this.logContext,
+    );
+
     if (!isLocalTrack(track) || !sender) {
-      if (!sender) log.warn('early return because sender is not ready');
+      log.error(`${E2EE_LOG_PREFIX} failed to setup e2ee sender`, this.logContext);
+      if (!sender)
+        log.warn(`${E2EE_LOG_PREFIX} early return because sender is not ready`, this.logContext);
       return;
     }
     this.handleSender(sender, track.mediaStreamID, undefined);
@@ -452,6 +612,11 @@ export class E2EEManager
     codec?: VideoCodec,
   ) {
     if (!this.worker) {
+      log.error(`${E2EE_LOG_PREFIX} failed to setup receiver, worker is missing`, {
+        ...this.logContext,
+        trackId,
+        participantIdentity,
+      });
       return;
     }
 
@@ -467,6 +632,15 @@ export class E2EEManager
         trackId,
         codec,
       };
+
+      log.info(
+        `${E2EE_LOG_PREFIX} setting up receiver, isScriptTransformSupported === true, creating a new RTCRtpScriptTransform`,
+        {
+          ...this.logContext,
+          ...options,
+        },
+      );
+
       // @ts-ignore
       receiver.transform = new RTCRtpScriptTransform(this.worker, options);
     } else {
@@ -480,6 +654,12 @@ export class E2EEManager
             participantIdentity: participantIdentity,
           },
         };
+
+        log.warn(
+          `${E2EE_LOG_PREFIX} setting up receiver, isScriptTransformSupported === false, posting "updateCodec" message and returning`,
+          { ...this.logContext, trackId, codec, participantIdentity },
+        );
+
         this.worker.postMessage(msg);
         return;
       }
@@ -510,6 +690,15 @@ export class E2EEManager
           isReuse: E2EE_FLAG in receiver,
         },
       };
+
+      log.info(`${E2EE_LOG_PREFIX} initializing decoded streams, posting "decode"`, {
+        ...this.logContext,
+        trackId,
+        codec,
+        isReuse: E2EE_FLAG in receiver,
+        participantIdentity: participantIdentity,
+      });
+
       this.worker.postMessage(msg, [readable, writable]);
     }
 
@@ -524,10 +713,21 @@ export class E2EEManager
    */
   private handleSender(sender: RTCRtpSender, trackId: string, codec?: VideoCodec) {
     if (E2EE_FLAG in sender || !this.worker) {
+      log.error(`${E2EE_LOG_PREFIX} failed to handle sender. E2EE flag or worker is missing`, {
+        ...this.logContext,
+        trackId,
+        codec,
+        hasE2eeFlag: E2EE_FLAG in sender,
+        hasWorker: !!this.worker,
+      });
       return;
     }
 
     if (!this.room?.localParticipant.identity || this.room.localParticipant.identity === '') {
+      log.error(
+        `${E2EE_LOG_PREFIX} local identity needs to be known in order to set up encrypted sender`,
+        { ...this.logContext, trackId, codec },
+      );
       throw TypeError('local identity needs to be known in order to set up encrypted sender');
     }
 
@@ -544,10 +744,17 @@ export class E2EEManager
         trackId,
         codec,
       };
+
+      log.info(`${E2EE_LOG_PREFIX} setting up sender, isScriptTransformSupported === true`, {
+        ...this.logContext,
+        kind: 'encode',
+        trackId,
+        codec,
+      });
+
       // @ts-ignore
       sender.transform = new RTCRtpScriptTransform(this.worker, options);
     } else {
-      log.info('initialize encoded streams');
       // @ts-ignore
       const senderStreams = sender.createEncodedStreams();
       const msg: EncodeMessage = {
@@ -561,6 +768,11 @@ export class E2EEManager
           isReuse: false,
         },
       };
+
+      log.info(
+        `${E2EE_LOG_PREFIX} initializing encoded streams, isScriptTransformSupported === false, posting "encode" message`,
+        { ...this.logContext, trackId, codec, isReuse: false },
+      );
       this.worker.postMessage(msg, [senderStreams.readable, senderStreams.writable]);
     }
 

@@ -1,7 +1,6 @@
-import { workerLogger } from '../../logger';
 import type { VideoCodec } from '../../room/track/options';
 import { AsyncQueue } from '../../utils/AsyncQueue';
-import { KEY_PROVIDER_DEFAULTS } from '../constants';
+import { E2EE_LOG_PREFIX, KEY_PROVIDER_DEFAULTS } from '../constants';
 import { CryptorErrorReason } from '../errors';
 import { CryptorEvent, KeyHandlerEvent } from '../events';
 import type {
@@ -20,6 +19,7 @@ import { DataCryptor } from './DataCryptor';
 import { FrameCryptor, encryptionEnabledMap } from './FrameCryptor';
 import { ParticipantKeyHandler } from './ParticipantKeyHandler';
 
+const E2EE_WORKER_LOG_PREFIX = E2EE_LOG_PREFIX + '[worker]';
 const participantCryptors: FrameCryptor[] = [];
 const participantKeys: Map<string, ParticipantKeyHandler> = new Map();
 let sharedKeyHandler: ParticipantKeyHandler | undefined;
@@ -35,7 +35,9 @@ let keyProviderOptions: KeyProviderOptions = KEY_PROVIDER_DEFAULTS;
 
 let rtpMap: Map<number, VideoCodec> = new Map();
 
-workerLogger.setDefaultLevel('info');
+let logSessionId: string | null = null;
+
+const getLogContext = () => ({ logSessionId });
 
 onmessage = (ev) => {
   messageQueue.run(async () => {
@@ -43,10 +45,16 @@ onmessage = (ev) => {
 
     switch (kind) {
       case 'init':
-        workerLogger.setLevel(data.loglevel);
-        workerLogger.info('worker initialized');
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_WORKER_LOG_PREFIX} worker initialized. Posting acknowledgement`,
+            properties: { logSessionId: data.logSessionId },
+          },
+        });
         keyProviderOptions = data.keyProviderOptions;
         useSharedKey = !!data.keyProviderOptions.sharedKey;
+        logSessionId = data.logSessionId;
         // acknowledge init successful
         const ackMsg: InitAck = {
           kind: 'initAck',
@@ -56,9 +64,13 @@ onmessage = (ev) => {
         break;
       case 'enable':
         setEncryptionEnabled(data.enabled, data.participantIdentity);
-        workerLogger.info(
-          `updated e2ee enabled status for ${data.participantIdentity} to ${data.enabled}`,
-        );
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_WORKER_LOG_PREFIX} updated e2ee enabled status for ${data.participantIdentity} to ${data.enabled}`,
+            properties: getLogContext(),
+          },
+        });
         // acknowledge enable call successful
         postMessage(ev.data);
         break;
@@ -72,6 +84,18 @@ onmessage = (ev) => {
           data.isReuse,
           data.codec,
         );
+
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_WORKER_LOG_PREFIX} received "decode". Running setupTransform on cryptor`,
+            properties: {
+              ...getLogContext(),
+              participantIdentity: data.participantIdentity,
+              trackId: data.trackId,
+            },
+          },
+        });
         break;
       case 'encode':
         let pubCryptor = getTrackCryptor(data.participantIdentity, data.trackId);
@@ -83,6 +107,18 @@ onmessage = (ev) => {
           data.isReuse,
           data.codec,
         );
+
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_WORKER_LOG_PREFIX} received "encode". Running setupTransform on pubCryptor`,
+            properties: {
+              ...getLogContext(),
+              participantIdentity: data.participantIdentity,
+              trackId: data.trackId,
+            },
+          },
+        });
         break;
 
       case 'encryptDataRequest':
@@ -129,29 +165,118 @@ onmessage = (ev) => {
         break;
 
       case 'setKey':
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_WORKER_LOG_PREFIX} received "setKey"`,
+            properties: {
+              ...getLogContext(),
+              participantIdentity: data.participantIdentity,
+              keyIndex: data.keyIndex,
+              useSharedKey,
+            },
+          },
+        });
         if (useSharedKey) {
           await setSharedKey(data.key, data.keyIndex);
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: `${E2EE_WORKER_LOG_PREFIX} successfully set shared key`,
+              properties: {
+                ...getLogContext(),
+                participantIdentity: data.participantIdentity,
+                keyIndex: data.keyIndex,
+              },
+            },
+          });
         } else if (data.participantIdentity) {
-          workerLogger.info(
-            `set participant sender key ${data.participantIdentity} index ${data.keyIndex}`,
-          );
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: `${E2EE_WORKER_LOG_PREFIX} will set key on participant key handler`,
+              properties: {
+                ...getLogContext(),
+                participantIdentity: data.participantIdentity,
+                keyIndex: data.keyIndex,
+              },
+            },
+          });
           await getParticipantKeyHandler(data.participantIdentity).setKey(data.key, data.keyIndex);
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: `${E2EE_WORKER_LOG_PREFIX} successfully set key on participant key handler`,
+              properties: {
+                ...getLogContext(),
+                participantIdentity: data.participantIdentity,
+                keyIndex: data.keyIndex,
+              },
+            },
+          });
         } else {
-          workerLogger.error('no participant Id was provided and shared key usage is disabled');
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: `${E2EE_WORKER_LOG_PREFIX} no participant Id was provided and shared key usage is disabled`,
+              properties: {
+                ...getLogContext(),
+                participantIdentity: data.participantIdentity,
+                keyIndex: data.keyIndex,
+              },
+            },
+          });
         }
         break;
       case 'removeTransform':
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_WORKER_LOG_PREFIX} received "removeTransform", will unset cryptor for participant`,
+            properties: {
+              ...getLogContext(),
+              participantIdentity: data.participantIdentity,
+              trackId: data.trackId,
+            },
+          },
+        });
         unsetCryptorParticipant(data.trackId, data.participantIdentity);
         break;
       case 'updateCodec':
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_WORKER_LOG_PREFIX} received "updateCodec", will set a video codec for track cryptor`,
+            properties: {
+              ...getLogContext(),
+              participantIdentity: data.participantIdentity,
+              trackId: data.trackId,
+              newCodec: data.codec,
+            },
+          },
+        });
         getTrackCryptor(data.participantIdentity, data.trackId).setVideoCodec(data.codec);
-        workerLogger.info('updated codec', {
-          participantIdentity: data.participantIdentity,
-          trackId: data.trackId,
-          codec: data.codec,
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_WORKER_LOG_PREFIX} updated codec, will set a video codec for track cryptor`,
+            properties: {
+              ...getLogContext(),
+              participantIdentity: data.participantIdentity,
+              trackId: data.trackId,
+              newCodec: data.codec,
+            },
+          },
         });
         break;
       case 'setRTPMap':
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_WORKER_LOG_PREFIX} received "setRTPMap", will set a rtp map for cryptors`,
+            properties: { ...getLogContext(), participantIdentity: data.participantIdentity },
+          },
+        });
         // this is only used for the local participant
         rtpMap = data.map;
         participantCryptors.forEach((cr) => {
@@ -161,9 +286,26 @@ onmessage = (ev) => {
         });
         break;
       case 'ratchetRequest':
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_WORKER_LOG_PREFIX} received "ratchetRequest"`,
+            properties: {
+              ...getLogContext(),
+              participantIdentity: data.participantIdentity,
+            },
+          },
+        });
         handleRatchetRequest(data);
         break;
       case 'setSifTrailer':
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_WORKER_LOG_PREFIX} received "setSifTrailer"`,
+            properties: getLogContext(),
+          },
+        });
         handleSifTrailer(data.trailer);
         break;
       default:
@@ -174,17 +316,64 @@ onmessage = (ev) => {
 
 async function handleRatchetRequest(data: RatchetRequestMessage['data']) {
   if (useSharedKey) {
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} handling ratchet request when using shared key`,
+        properties: {
+          ...getLogContext(),
+          participantIdentity: data.participantIdentity,
+        },
+      },
+    });
     const keyHandler = getSharedKeyHandler();
     await keyHandler.ratchetKey(data.keyIndex);
     keyHandler.resetKeyStatus();
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} ratchet key successfully handled`,
+        properties: {
+          ...getLogContext(),
+          participantIdentity: data.participantIdentity,
+        },
+      },
+    });
   } else if (data.participantIdentity) {
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} handling ratchet request without a shared key`,
+        properties: {
+          ...getLogContext(),
+          participantIdentity: data.participantIdentity,
+        },
+      },
+    });
     const keyHandler = getParticipantKeyHandler(data.participantIdentity);
     await keyHandler.ratchetKey(data.keyIndex);
     keyHandler.resetKeyStatus();
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} ratchet key successfully handled`,
+        properties: {
+          ...getLogContext(),
+          participantIdentity: data.participantIdentity,
+        },
+      },
+    });
   } else {
-    workerLogger.error(
-      'no participant Id was provided for ratchet request and shared key usage is disabled',
-    );
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} no participant ID was provided for ratchet request and shared key usage is disabled`,
+        properties: {
+          ...getLogContext(),
+          participantIdentity: data.participantIdentity,
+        },
+      },
+    });
   }
 }
 
@@ -196,15 +385,44 @@ function getTrackCryptor(participantIdentity: string, trackId: string) {
         return { participant: c.getParticipantIdentity() };
       })
       .join(',');
-    workerLogger.error(
-      `Found multiple cryptors for the same trackID ${trackId}. target participant: ${participantIdentity} `,
-      { participants: debugInfo },
-    );
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} found multiple cryptors for the same trackID`,
+        properties: {
+          ...getLogContext(),
+          trackId,
+          participantIdentity,
+          debugInfo,
+        },
+      },
+    });
   }
   let cryptor = cryptors[0];
   if (!cryptor) {
-    workerLogger.info('creating new cryptor for', { participantIdentity, trackId });
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} creating new cryptor`,
+        properties: {
+          ...getLogContext(),
+          trackId,
+          participantIdentity,
+        },
+      },
+    });
     if (!keyProviderOptions) {
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_WORKER_LOG_PREFIX} tried to get the track cryptor, but missing keyProvider options`,
+          properties: {
+            ...getLogContext(),
+            trackId,
+            participantIdentity,
+          },
+        },
+      });
       throw Error('Missing keyProvider options');
     }
     cryptor = new FrameCryptor({
@@ -212,11 +430,23 @@ function getTrackCryptor(participantIdentity: string, trackId: string) {
       keys: getParticipantKeyHandler(participantIdentity),
       keyProviderOptions,
       sifTrailer,
+      logSessionId,
     });
     cryptor.setRtpMap(rtpMap);
     setupCryptorErrorEvents(cryptor);
     participantCryptors.push(cryptor);
   } else if (participantIdentity !== cryptor.getParticipantIdentity()) {
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} assigning a new participant id to track cryptor and passing in a correct key handler`,
+        properties: {
+          ...getLogContext(),
+          trackId,
+          participantIdentity,
+        },
+      },
+    });
     // assign new participant id to track cryptor and pass in correct key handler
     cryptor.setParticipant(participantIdentity, getParticipantKeyHandler(participantIdentity));
   }
@@ -225,22 +455,56 @@ function getTrackCryptor(participantIdentity: string, trackId: string) {
 }
 
 function getParticipantKeyHandler(participantIdentity: string) {
+  postMessage({
+    kind: 'logging',
+    data: {
+      message: `${E2EE_WORKER_LOG_PREFIX} getting participant key handler`,
+      properties: {
+        ...getLogContext(),
+        participantIdentity,
+      },
+    },
+  });
   if (useSharedKey) {
     return getSharedKeyHandler();
   }
   let keys = participantKeys.get(participantIdentity);
   if (!keys) {
-    keys = new ParticipantKeyHandler(participantIdentity, keyProviderOptions);
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} participant had no keys, creating new participantKeyHandler`,
+        properties: {
+          ...getLogContext(),
+          participantIdentity,
+        },
+      },
+    });
+    keys = new ParticipantKeyHandler(participantIdentity, keyProviderOptions, logSessionId);
     keys.on(KeyHandlerEvent.KeyRatcheted, emitRatchetedKeys);
     participantKeys.set(participantIdentity, keys);
   }
+
   return keys;
 }
 
 function getSharedKeyHandler() {
+  postMessage({
+    kind: 'logging',
+    data: {
+      message: `${E2EE_WORKER_LOG_PREFIX} getting shared key handler`,
+      properties: getLogContext(),
+    },
+  });
   if (!sharedKeyHandler) {
-    workerLogger.debug('creating new shared key handler');
-    sharedKeyHandler = new ParticipantKeyHandler('shared-key', keyProviderOptions);
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} had no shared key handler, creating new shared key handler`,
+        properties: getLogContext(),
+      },
+    });
+    sharedKeyHandler = new ParticipantKeyHandler('shared-key', keyProviderOptions, logSessionId);
   }
   return sharedKeyHandler;
 }
@@ -250,28 +514,64 @@ function unsetCryptorParticipant(trackId: string, participantIdentity: string) {
     (c) => c.getParticipantIdentity() === participantIdentity && c.getTrackId() === trackId,
   );
   if (cryptors.length > 1) {
-    workerLogger.error('Found multiple cryptors for the same participant and trackID combination', {
-      trackId,
-      participantIdentity,
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} tried to unset a cryptor, but found multiple cryptors for the same participant and trackID combination`,
+        properties: {
+          ...getLogContext(),
+          trackId,
+          participantIdentity,
+        },
+      },
     });
   }
   const cryptor = cryptors[0];
   if (!cryptor) {
-    workerLogger.warn('Could not unset participant on cryptor', { trackId, participantIdentity });
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} could not unset participant on cryptor, no cryptor was found for participant`,
+        properties: {
+          ...getLogContext(),
+          trackId,
+          participantIdentity,
+        },
+      },
+    });
   } else {
     cryptor.unsetParticipant();
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} successfully unset cryptor`,
+        properties: {
+          ...getLogContext(),
+          trackId,
+          participantIdentity,
+        },
+      },
+    });
   }
 }
 
 function setEncryptionEnabled(enable: boolean, participantIdentity: string) {
-  workerLogger.debug(`setting encryption enabled for all tracks of ${participantIdentity}`, {
-    enable,
+  postMessage({
+    kind: 'logging',
+    data: {
+      message: `${E2EE_WORKER_LOG_PREFIX} setting encryption enabled for all tracks of ${participantIdentity}`,
+      properties: {
+        ...getLogContext(),
+        enable,
+        participantIdentity,
+      },
+    },
   });
   encryptionEnabledMap.set(participantIdentity, enable);
 }
 
 async function setSharedKey(key: CryptoKey, index?: number) {
-  workerLogger.info('set shared key', { index });
+  // add logs inside participantKeyHandler
   await getSharedKeyHandler().setKey(key, index);
 }
 
@@ -290,6 +590,17 @@ function emitRatchetedKeys(
   participantIdentity: string,
   keyIndex?: number,
 ) {
+  postMessage({
+    kind: 'logging',
+    data: {
+      message: `${E2EE_WORKER_LOG_PREFIX} emitting ratchetKey`,
+      properties: {
+        ...getLogContext(),
+        participantIdentity,
+        keyIndex,
+      },
+    },
+  });
   const msg: RatchetMessage = {
     kind: `ratchetKey`,
     data: {
@@ -311,17 +622,39 @@ function handleSifTrailer(trailer: Uint8Array) {
 // Operations using RTCRtpScriptTransform.
 // @ts-ignore
 if (self.RTCTransformEvent) {
-  workerLogger.debug('setup transform event');
+  // TODO: HERE
+  postMessage({
+    kind: 'logging',
+    data: {
+      message: `${E2EE_WORKER_LOG_PREFIX} setup transform event`,
+      properties: getLogContext(),
+    },
+  });
   // @ts-ignore
   self.onrtctransform = (event: RTCTransformEvent) => {
     // @ts-ignore
     const transformer = event.transformer;
-    workerLogger.debug('transformer', transformer);
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} transformer info`,
+        properties: getLogContext(),
+      },
+    });
 
     const { kind, participantIdentity, trackId, codec } =
       transformer.options as ScriptTransformOptions;
     const cryptor = getTrackCryptor(participantIdentity, trackId);
-    workerLogger.debug('transform', { codec });
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_WORKER_LOG_PREFIX} setting up transform. Codec info`,
+        properties: {
+          ...getLogContext(),
+          codec,
+        },
+      },
+    });
     cryptor.setupTransform(kind, transformer.readable, transformer.writable, trackId, false, codec);
   };
 }

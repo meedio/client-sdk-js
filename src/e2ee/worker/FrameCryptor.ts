@@ -2,9 +2,8 @@
 // TODO code inspired by https://github.com/webrtc/samples/blob/gh-pages/src/content/insertable-streams/endtoend-encryption/js/worker.js
 import { EventEmitter } from 'events';
 import type TypedEventEmitter from 'typed-emitter';
-import { workerLogger } from '../../logger';
 import type { VideoCodec } from '../../room/track/options';
-import { ENCRYPTION_ALGORITHM, IV_LENGTH, UNENCRYPTED_BYTES } from '../constants';
+import { E2EE_LOG_PREFIX, ENCRYPTION_ALGORITHM, IV_LENGTH, UNENCRYPTED_BYTES } from '../constants';
 import { CryptorError, CryptorErrorReason } from '../errors';
 import { type CryptorCallbacks, CryptorEvent } from '../events';
 import type { DecodeRatchetOptions, KeyProviderOptions, KeySet, RatchetResult } from '../types';
@@ -14,6 +13,7 @@ import { processNALUsForEncryption } from './naluUtils';
 import { identifySifPayload } from './sifPayload';
 
 export const encryptionEnabledMap: Map<string, boolean> = new Map();
+const E2EE_CRYPTOR_LOG_PREFIX = E2EE_LOG_PREFIX + '[worker-cryptor]';
 
 export interface FrameCryptorConstructor {
   new (opts?: unknown): BaseFrameCryptor;
@@ -70,11 +70,14 @@ export class FrameCryptor extends BaseFrameCryptor {
 
   private isTransformActive: boolean = false;
 
+  private localParticipantLogSessionId: string | null;
+
   constructor(opts: {
     keys: ParticipantKeyHandler;
     participantIdentity: string;
     keyProviderOptions: KeyProviderOptions;
     sifTrailer?: Uint8Array;
+    logSessionId: string | null;
   }) {
     super();
     this.sendCounts = new Map();
@@ -83,6 +86,19 @@ export class FrameCryptor extends BaseFrameCryptor {
     this.rtpMap = new Map();
     this.keyProviderOptions = opts.keyProviderOptions;
     this.sifTrailer = opts.sifTrailer ?? Uint8Array.from([]);
+    this.localParticipantLogSessionId = opts.logSessionId;
+
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_CRYPTOR_LOG_PREFIX} initialized cryptor`,
+        properties: {
+          ...this.logContext,
+          keyProviderOptions: this.keyProviderOptions,
+          participantIdentity: this.participantIdentity,
+        },
+      },
+    });
   }
 
   private get logContext() {
@@ -90,6 +106,7 @@ export class FrameCryptor extends BaseFrameCryptor {
       participant: this.participantIdentity,
       mediaTrackId: this.trackId,
       fallbackCodec: this.videoCodec,
+      logSessionId: this.localParticipantLogSessionId,
     };
   }
 
@@ -100,24 +117,44 @@ export class FrameCryptor extends BaseFrameCryptor {
    * @param keys
    */
   setParticipant(id: string, keys: ParticipantKeyHandler) {
-    workerLogger.debug('setting new participant on cryptor', {
-      ...this.logContext,
-      participant: id,
-    });
-    if (this.participantIdentity) {
-      workerLogger.error(
-        'cryptor has already a participant set, participant should have been unset before',
-        {
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_CRYPTOR_LOG_PREFIX} setting new participant on cryptor`,
+        properties: {
           ...this.logContext,
+          participantToSet: id,
         },
-      );
+      },
+    });
+
+    if (this.participantIdentity) {
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_CRYPTOR_LOG_PREFIX} cryptor has already a participant set, participant should have been unset before`,
+          properties: {
+            ...this.logContext,
+            participantToSet: id,
+          },
+        },
+      });
     }
     this.participantIdentity = id;
     this.keys = keys;
   }
 
   unsetParticipant() {
-    workerLogger.debug('unsetting participant', this.logContext);
+    if (this.participantIdentity) {
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_CRYPTOR_LOG_PREFIX} unsetting participant`,
+          properties: this.logContext,
+        },
+      });
+    }
+
     this.participantIdentity = undefined;
   }
 
@@ -161,22 +198,46 @@ export class FrameCryptor extends BaseFrameCryptor {
     isReuse: boolean,
     codec?: VideoCodec,
   ) {
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_CRYPTOR_LOG_PREFIX} setupTransform starts`,
+        properties: {
+          ...this.logContext,
+          trackId,
+          isReuse,
+          codec,
+          operation,
+        },
+      },
+    });
     if (codec) {
-      workerLogger.info('setting codec on cryptor to', { codec });
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_CRYPTOR_LOG_PREFIX} setting codec on cryptor`,
+          properties: {
+            ...this.logContext,
+            trackId,
+            codec,
+          },
+        },
+      });
       this.videoCodec = codec;
     }
 
-    workerLogger.debug('Setting up frame cryptor transform', {
-      operation,
-      passedTrackId: trackId,
-      codec,
-      ...this.logContext,
-    });
-
     if (isReuse && this.isTransformActive) {
-      workerLogger.debug('reuse transform', {
-        ...this.logContext,
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_CRYPTOR_LOG_PREFIX} reusing active transform, returning from setupTransform`,
+          properties: {
+            ...this.logContext,
+            trackId,
+          },
+        },
       });
+
       return;
     }
 
@@ -191,7 +252,17 @@ export class FrameCryptor extends BaseFrameCryptor {
       .pipeThrough(transformStream)
       .pipeTo(writable)
       .catch((e) => {
-        workerLogger.warn(e);
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_CRYPTOR_LOG_PREFIX} error in readable pipe`,
+            properties: {
+              ...this.logContext,
+              trackId,
+              e,
+            },
+          },
+        });
         this.emit(
           CryptorEvent.Error,
           e instanceof CryptorError
@@ -206,7 +277,13 @@ export class FrameCryptor extends BaseFrameCryptor {
   }
 
   setSifTrailer(trailer: Uint8Array) {
-    workerLogger.debug('setting SIF trailer', { ...this.logContext, trailer });
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_CRYPTOR_LOG_PREFIX} setting sif trailer`,
+        properties: this.logContext,
+      },
+    });
     this.sifTrailer = trailer;
   }
 
@@ -314,10 +391,25 @@ export class FrameCryptor extends BaseFrameCryptor {
         return controller.enqueue(encodedFrame);
       } catch (e: any) {
         // TODO: surface this to the app.
-        workerLogger.error(e);
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_CRYPTOR_LOG_PREFIX} encryption error`,
+            properties: {
+              ...this.logContext,
+              error: e,
+            },
+          },
+        });
       }
     } else {
-      workerLogger.debug('failed to encrypt, emitting error', this.logContext);
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_CRYPTOR_LOG_PREFIX} encryption key not found. Encryption failed`,
+          properties: this.logContext,
+        },
+      });
       this.emit(
         CryptorEvent.Error,
         new CryptorError(
@@ -353,10 +445,22 @@ export class FrameCryptor extends BaseFrameCryptor {
         encodedFrame.data.byteLength - this.sifTrailer.byteLength,
       );
       if (await identifySifPayload(encodedFrame.data)) {
-        workerLogger.debug('enqueue SIF', this.logContext);
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_CRYPTOR_LOG_PREFIX} enqueue SIF`, //TODO: remove if spammed
+            properties: this.logContext,
+          },
+        });
         return controller.enqueue(encodedFrame);
       } else {
-        workerLogger.warn('Unexpected SIF frame payload, dropping frame', this.logContext);
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_CRYPTOR_LOG_PREFIX} Unexpected SIF frame payload, dropping frame`,
+            properties: this.logContext,
+          },
+        });
         return;
       }
     }
@@ -364,6 +468,16 @@ export class FrameCryptor extends BaseFrameCryptor {
     const keyIndex = data[encodedFrame.data.byteLength - 1];
 
     if (this.keys.hasInvalidKeyAtIndex(keyIndex)) {
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_CRYPTOR_LOG_PREFIX} has invalid key at index, dropping frame`,
+          properties: {
+            ...this.logContext,
+            keyIndex,
+          },
+        },
+      });
       // drop frame
       return;
     }
@@ -377,18 +491,50 @@ export class FrameCryptor extends BaseFrameCryptor {
         }
       } catch (error) {
         if (error instanceof CryptorError && error.reason === CryptorErrorReason.InvalidKey) {
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: `${E2EE_CRYPTOR_LOG_PREFIX} failed decoding a frame with a reason InvalidKey. Will emit the error if handler thinks we have a valid key`,
+              properties: {
+                ...this.logContext,
+                keyIndex,
+                hasValidKey: this.keys.hasValidKey,
+              },
+            },
+          });
           // emit an error if the key handler thinks we have a valid key
           if (this.keys.hasValidKey) {
+            postMessage({
+              kind: 'logging',
+              data: {
+                message: `${E2EE_CRYPTOR_LOG_PREFIX} emiting error`,
+                properties: {
+                  ...this.logContext,
+                  keyIndex,
+                },
+              },
+            });
             this.emit(CryptorEvent.Error, error);
             this.keys.decryptionFailure(keyIndex);
           }
         } else {
-          workerLogger.warn('decoding frame failed', { error });
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: `${E2EE_CRYPTOR_LOG_PREFIX} decoding frame failed`,
+              properties: {
+                ...this.logContext,
+                keyIndex,
+                hasValidKey: this.keys.hasValidKey,
+                error,
+              },
+            },
+          });
         }
       }
     } else {
       // emit an error if the key index is out of bounds but the key handler thinks we still have a valid key
-      workerLogger.warn(`skipping decryption due to missing key at index ${keyIndex}`);
+
       this.emit(
         CryptorEvent.Error,
         new CryptorError(
@@ -413,6 +559,18 @@ export class FrameCryptor extends BaseFrameCryptor {
   ): Promise<RTCEncodedVideoFrame | RTCEncodedAudioFrame | undefined> {
     const keySet = this.keys.getKeySet(keyIndex);
     if (!ratchetOpts.encryptionKey && !keySet) {
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_CRYPTOR_LOG_PREFIX} no encryption key found for decryption`,
+          properties: {
+            ...this.logContext,
+            keyIndex,
+            ratchetOpts,
+            keySet,
+          },
+        },
+      });
       throw new TypeError(`no encryption key found for decryption of ${this.participantIdentity}`);
     }
     let frameInfo = this.getUnencryptedBytes(encodedFrame);
@@ -476,15 +634,42 @@ export class FrameCryptor extends BaseFrameCryptor {
     } catch (error: any) {
       if (this.keyProviderOptions.ratchetWindowSize > 0) {
         if (ratchetOpts.ratchetCount < this.keyProviderOptions.ratchetWindowSize) {
-          workerLogger.debug(
-            `ratcheting key attempt ${ratchetOpts.ratchetCount} of ${
-              this.keyProviderOptions.ratchetWindowSize
-            }, for kind ${encodedFrame instanceof RTCEncodedAudioFrame ? 'audio' : 'video'}`,
-          );
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: `ratcheting key attempt ${ratchetOpts.ratchetCount} of ${
+                this.keyProviderOptions.ratchetWindowSize
+              }, for kind ${encodedFrame instanceof RTCEncodedAudioFrame ? 'audio' : 'video'}`,
+              properties: this.logContext,
+            },
+          });
+
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: `${E2EE_CRYPTOR_LOG_PREFIX} ratcheting key attempt ${ratchetOpts.ratchetCount} of ${
+                this.keyProviderOptions.ratchetWindowSize
+              }, for kind ${encodedFrame instanceof RTCEncodedAudioFrame ? 'audio' : 'video'}`,
+              properties: {
+                ...this.logContext,
+                keyIndex,
+              },
+            },
+          });
 
           let ratchetedKeySet: KeySet | undefined;
           let ratchetResult: RatchetResult | undefined;
           if ((initialMaterial ?? keySet) === this.keys.getKeySet(keyIndex)) {
+            postMessage({
+              kind: 'logging',
+              data: {
+                message: `${E2EE_CRYPTOR_LOG_PREFIX} starting ratchetKey and deriveKeys`,
+                properties: {
+                  ...this.logContext,
+                  keyIndex,
+                },
+              },
+            });
             // only ratchet if the currently set key is still the same as the one used to decrypt this frame
             // if not, it might be that a different frame has already ratcheted and we try with that one first
             ratchetResult = await this.keys.ratchetKey(keyIndex, false);
@@ -493,6 +678,28 @@ export class FrameCryptor extends BaseFrameCryptor {
               ratchetResult.cryptoKey,
               this.keyProviderOptions.ratchetSalt,
             );
+
+            postMessage({
+              kind: 'logging',
+              data: {
+                message: `${E2EE_CRYPTOR_LOG_PREFIX} completed ratchetKey and deriveKeys`,
+                properties: {
+                  ...this.logContext,
+                  keyIndex,
+                },
+              },
+            });
+          } else {
+            postMessage({
+              kind: 'logging',
+              data: {
+                message: `${E2EE_CRYPTOR_LOG_PREFIX} skipping ratchetKey`,
+                properties: {
+                  ...this.logContext,
+                  keyIndex,
+                },
+              },
+            });
           }
 
           const frame = await this.decryptFrame(encodedFrame, keyIndex, initialMaterial || keySet, {
@@ -515,8 +722,16 @@ export class FrameCryptor extends BaseFrameCryptor {
            * we can be sure that we don't need to reset the key to the initial material at this point
            * as the key has not been updated on the keyHandler instance
            */
-
-          workerLogger.warn('maximum ratchet attempts exceeded');
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: `${E2EE_CRYPTOR_LOG_PREFIX} maximum ratchet attempts exceeded, valid key missing for participant ${this.participantIdentity}`,
+              properties: {
+                ...this.logContext,
+                keyIndex,
+              },
+            },
+          });
           throw new CryptorError(
             `valid key missing for participant ${this.participantIdentity}`,
             CryptorErrorReason.InvalidKey,
@@ -524,6 +739,17 @@ export class FrameCryptor extends BaseFrameCryptor {
           );
         }
       } else {
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_CRYPTOR_LOG_PREFIX} decryption failed with an InvalidKey reason`,
+            properties: {
+              ...this.logContext,
+              keyIndex,
+              error,
+            },
+          },
+        });
         throw new CryptorError(
           `Decryption failed: ${error.message}`,
           CryptorErrorReason.InvalidKey,
@@ -585,10 +811,16 @@ export class FrameCryptor extends BaseFrameCryptor {
     // Detect and track codec changes
     const detectedCodec = this.getVideoCodec(frame) ?? this.videoCodec;
     if (detectedCodec !== this.detectedCodec) {
-      workerLogger.debug('detected different codec', {
-        detectedCodec,
-        oldCodec: this.detectedCodec,
-        ...this.logContext,
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_CRYPTOR_LOG_PREFIX} ${detectedCodec} detected different codec`,
+          properties: {
+            ...this.logContext,
+            detectedCodec,
+            oldCodec: this.detectedCodec,
+          },
+        },
       });
       this.detectedCodec = detectedCodec;
     }
@@ -619,9 +851,15 @@ export class FrameCryptor extends BaseFrameCryptor {
         };
       }
     } catch (e) {
-      workerLogger.debug('NALU processing failed, falling back to VP8 handling', {
-        error: e,
-        ...this.logContext,
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_CRYPTOR_LOG_PREFIX} NALU processing failed, falling back to VP8 handling`,
+          properties: {
+            ...this.logContext,
+            error: e,
+          },
+        },
       });
     }
 

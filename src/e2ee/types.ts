@@ -13,6 +13,7 @@ export interface InitMessage extends BaseMessage {
   data: {
     keyProviderOptions: KeyProviderOptions;
     loglevel: LogLevel;
+    logSessionId: string;
   };
 }
 
@@ -109,6 +110,10 @@ export interface InitAck extends BaseMessage {
   };
 }
 
+export interface LoggingMessage extends BaseMessage {
+  kind: 'logging';
+  data: { message: string; properties: Record<string, any> };
+}
 export interface DecryptDataRequestMessage extends BaseMessage {
   kind: 'decryptDataRequest';
   data: {
@@ -163,7 +168,8 @@ export type E2EEWorkerMessage =
   | DecryptDataRequestMessage
   | DecryptDataResponseMessage
   | EncryptDataRequestMessage
-  | EncryptDataResponseMessage;
+  | EncryptDataResponseMessage
+  | LoggingMessage;
 
 export type KeySet = { material: CryptoKey; encryptionKey: CryptoKey };
 

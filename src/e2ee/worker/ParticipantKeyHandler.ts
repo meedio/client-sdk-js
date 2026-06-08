@@ -1,9 +1,11 @@
 import { EventEmitter } from 'events';
 import type TypedEventEmitter from 'typed-emitter';
-import { workerLogger } from '../../logger';
+import { E2EE_LOG_PREFIX } from '../constants';
 import { KeyHandlerEvent, type ParticipantKeyHandlerCallbacks } from '../events';
 import type { KeyProviderOptions, KeySet, RatchetResult } from '../types';
 import { deriveKeys, importKey, ratchet } from '../utils';
+
+const E2EE_KEY_HANDLER_LOG_PREFIX = E2EE_LOG_PREFIX + '[worker-key-handler]';
 
 // TODO ParticipantKeyHandlers currently don't get destroyed on participant disconnect
 // we could do this by having a separate worker message on participant disconnected.
@@ -30,6 +32,8 @@ export class ParticipantKeyHandler extends (EventEmitter as new () => TypedEvent
   /** @internal */
   readonly keyProviderOptions: KeyProviderOptions;
 
+  private localParticipantLogSessionId: string | null;
+
   /**
    * true if the current key has not been marked as invalid
    */
@@ -37,7 +41,11 @@ export class ParticipantKeyHandler extends (EventEmitter as new () => TypedEvent
     return !this.hasInvalidKeyAtIndex(this.currentKeyIndex);
   }
 
-  constructor(participantIdentity: string, keyProviderOptions: KeyProviderOptions) {
+  constructor(
+    participantIdentity: string,
+    keyProviderOptions: KeyProviderOptions,
+    logSessionId: string | null,
+  ) {
     super();
     this.currentKeyIndex = 0;
     if (keyProviderOptions.keyringSize < 1 || keyProviderOptions.keyringSize > 256) {
@@ -48,6 +56,26 @@ export class ParticipantKeyHandler extends (EventEmitter as new () => TypedEvent
     this.keyProviderOptions = keyProviderOptions;
     this.ratchetPromiseMap = new Map();
     this.participantIdentity = participantIdentity;
+    this.localParticipantLogSessionId = logSessionId;
+
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_KEY_HANDLER_LOG_PREFIX} initialized key handler`,
+        properties: {
+          ...this.logContext,
+          keyProviderOptions,
+          participantIdentity,
+        },
+      },
+    });
+  }
+
+  private get logContext() {
+    return {
+      participantIdentity: this.participantIdentity,
+      logSessionId: this.localParticipantLogSessionId,
+    };
   }
 
   /**
@@ -75,9 +103,16 @@ export class ParticipantKeyHandler extends (EventEmitter as new () => TypedEvent
     this.decryptionFailureCounts[keyIndex] += 1;
 
     if (this.decryptionFailureCounts[keyIndex] > this.keyProviderOptions.failureTolerance) {
-      workerLogger.warn(
-        `key for ${this.participantIdentity} at index ${keyIndex} is being marked as invalid`,
-      );
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_KEY_HANDLER_LOG_PREFIX} key for ${this.participantIdentity} at index ${keyIndex} is being marked as invalid`,
+          properties: {
+            ...this.logContext,
+            keyIndex,
+          },
+        },
+      });
     }
   }
 
@@ -114,21 +149,78 @@ export class ParticipantKeyHandler extends (EventEmitter as new () => TypedEvent
   ratchetKey(keyIndex?: number, setKey = true): Promise<RatchetResult> {
     const currentKeyIndex = keyIndex ?? this.getCurrentKeyIndex();
 
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_KEY_HANDLER_LOG_PREFIX} ratchetKey starts`,
+        properties: {
+          ...this.logContext,
+          keyIndex,
+          currentKeyIndex,
+          setKey,
+        },
+      },
+    });
+
     const existingPromise = this.ratchetPromiseMap.get(currentKeyIndex);
     if (typeof existingPromise !== 'undefined') {
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_KEY_HANDLER_LOG_PREFIX} already has a promise for ratchetKey, returning`,
+          properties: {
+            ...this.logContext,
+            keyIndex,
+            currentKeyIndex,
+          },
+        },
+      });
       return existingPromise;
     }
     const ratchetPromise = new Promise<RatchetResult>(async (resolve, reject) => {
       try {
         const keySet = this.getKeySet(currentKeyIndex);
         if (!keySet) {
+          postMessage({
+            kind: 'logging',
+            data: {
+              message: `${E2EE_KEY_HANDLER_LOG_PREFIX} cannot ratchet key without a valid keyset of participant ${this.participantIdentity}`,
+              properties: {
+                ...this.logContext,
+                keyIndex,
+                currentKeyIndex,
+              },
+            },
+          });
           throw new TypeError(
             `Cannot ratchet key without a valid keyset of participant ${this.participantIdentity}`,
           );
         }
         const currentMaterial = keySet.material;
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_KEY_HANDLER_LOG_PREFIX} will start ratchet and importKey`,
+            properties: {
+              ...this.logContext,
+              keyIndex,
+              currentKeyIndex,
+            },
+          },
+        });
         const chainKey = await ratchet(currentMaterial, this.keyProviderOptions.ratchetSalt);
         const newMaterial = await importKey(chainKey, currentMaterial.algorithm.name, 'derive');
+        postMessage({
+          kind: 'logging',
+          data: {
+            message: `${E2EE_KEY_HANDLER_LOG_PREFIX} ratchet and importKey completed`,
+            properties: {
+              ...this.logContext,
+              keyIndex,
+              currentKeyIndex,
+            },
+          },
+        });
         const ratchetResult: RatchetResult = {
           chainKey,
           cryptoKey: newMaterial,
@@ -170,22 +262,71 @@ export class ParticipantKeyHandler extends (EventEmitter as new () => TypedEvent
     keyIndex: number,
     ratchetedResult: RatchetResult | null = null,
   ) {
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_KEY_HANDLER_LOG_PREFIX} setting new key from material`,
+        properties: {
+          ...this.logContext,
+          keyIndex,
+          usage: material.usages,
+          algorithm: material.algorithm,
+        },
+      },
+    });
     const keySet = await deriveKeys(material, this.keyProviderOptions.ratchetSalt);
     const newIndex = keyIndex >= 0 ? keyIndex % this.cryptoKeyRing.length : this.currentKeyIndex;
-    workerLogger.debug(`setting new key with index ${keyIndex}`, {
-      usage: material.usages,
-      algorithm: material.algorithm,
-      ratchetSalt: this.keyProviderOptions.ratchetSalt,
-    });
     this.setKeySet(keySet, newIndex, ratchetedResult);
     if (newIndex >= 0) this.currentKeyIndex = newIndex;
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_KEY_HANDLER_LOG_PREFIX} completed setting new key from material`,
+        properties: {
+          ...this.logContext,
+          keyIndex,
+        },
+      },
+    });
   }
 
   setKeySet(keySet: KeySet, keyIndex: number, ratchetedResult: RatchetResult | null = null) {
     this.cryptoKeyRing[keyIndex % this.cryptoKeyRing.length] = keySet;
 
+    postMessage({
+      kind: 'logging',
+      data: {
+        message: `${E2EE_KEY_HANDLER_LOG_PREFIX} setting key set`,
+        properties: {
+          ...this.logContext,
+          keyIndex,
+        },
+      },
+    });
+
     if (ratchetedResult) {
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_KEY_HANDLER_LOG_PREFIX} emitting KeyHandlerEvent.KeyRatcheted`,
+          properties: {
+            ...this.logContext,
+            keyIndex,
+          },
+        },
+      });
       this.emit(KeyHandlerEvent.KeyRatcheted, ratchetedResult, this.participantIdentity, keyIndex);
+    } else {
+      postMessage({
+        kind: 'logging',
+        data: {
+          message: `${E2EE_KEY_HANDLER_LOG_PREFIX} no ratchetedResult, will not emit KeyHandlerEvent.KeyRatcheted`,
+          properties: {
+            ...this.logContext,
+            keyIndex,
+          },
+        },
+      });
     }
   }
 
